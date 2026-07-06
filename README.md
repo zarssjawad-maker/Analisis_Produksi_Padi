@@ -1,4 +1,4 @@
-# 🛰️ Analisis Produksi Padi Sumatera (1993–2020) — "Satelit Panen"
+# 🛰️ Analisis Produksi Padi Sumatera (1993–2020) — "Monitoring Panen"
 
 Laporan interaktif berbasis web (single-page) yang menyajikan analisis statistik terhadap **produksi padi di 8 provinsi Pulau Sumatera periode 1993–2020**. Proyek ini merupakan **Tugas Besar Mata Kuliah Analisis Data Statistik** — Program Studi Informatika, Fakultas Sains dan Teknologi, Universitas Al‑Azhar Indonesia.
 
