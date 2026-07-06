@@ -1,0 +1,5036 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analisis Produksi Padi Sumatera 1993–2020 | Kelompok 2</title>
+    <meta name="description"
+        content="Tugas Besar Analisis Data Statistika — Analisis produksi padi di Pulau Sumatera periode 1993-2020">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- <link rel="stylesheet" href="style.css"> -->
+    <!-- <script src="animations.js" crossorigin="anonymous"></script> -->
+</head>
+<style>
+    /* =====================================================================
+   PADI SUMATERA — "SATELIT PANEN" DESIGN SYSTEM
+   Arah desain: konsol pemantauan satelit / radar agroklimat.
+   Sawah dibaca sebagai data — kontur terasering jadi garis topografi,
+   angka jadi telemetri, dan setiap panel adalah "jendela sensor".
+   Palet   : void navy-hitam + hijau fosfor (vegetasi/NDVI) + cyan telemetri
+   Tipografi: Fraunces (judul, organik — mewakili "panen"),
+              Inter (isi), IBM Plex Mono (data/telemetri)
+   ===================================================================== */
+
+    /* ---------- 1. DESIGN TOKENS ---------- */
+    :root {
+        --font-display: 'Fraunces', serif;
+        --font-body: 'Inter', sans-serif;
+        --font-mono: 'IBM Plex Mono', monospace;
+
+        /* Light / "siang" console */
+        --bg-void: #eef3ef;
+        --bg-void-2: #e4ece6;
+        --bg-panel: rgba(255, 255, 255, 0.72);
+        --bg-panel-solid: #ffffff;
+        --border-soft: rgba(15, 40, 30, 0.10);
+        --border-strong: rgba(15, 40, 30, 0.18);
+        --text-primary: #0c1f18;
+        --text-muted: #4d6459;
+        --text-faint: #82998d;
+
+        --accent-a: #0f9d64;
+        /* phosphor green */
+        --accent-a-glow: rgba(15, 157, 100, 0.35);
+        --accent-b: #0891b2;
+        /* cyan telemetry */
+        --accent-b-glow: rgba(8, 145, 178, 0.30);
+        --accent-c: #7c5cff;
+        /* violet, dipakai sangat sedikit */
+
+        --danger: #d64545;
+        --shadow-lift: 0 20px 50px -20px rgba(10, 30, 22, 0.25);
+        --radius-lg: 20px;
+        --radius-md: 14px;
+        --radius-sm: 9px;
+
+        --grid-line: rgba(15, 60, 40, 0.06);
+        --ease-out: cubic-bezier(.16, 1, .3, 1);
+    }
+
+    [data-theme="dark"] {
+        --bg-void: #050a08;
+        --bg-void-2: #081210;
+        --bg-panel: rgba(10, 22, 18, 0.55);
+        --bg-panel-solid: #0a1612;
+        --border-soft: rgba(120, 255, 190, 0.10);
+        --border-strong: rgba(120, 255, 190, 0.22);
+        --text-primary: #eaf6ef;
+        --text-muted: #8fae9e;
+        --text-faint: #5c766a;
+
+        --accent-a: #38ffa0;
+        --accent-a-glow: rgba(56, 255, 160, 0.35);
+        --accent-b: #35d4ff;
+        --accent-b-glow: rgba(53, 212, 255, 0.30);
+        --accent-c: #b09bff;
+
+        --shadow-lift: 0 30px 70px -25px rgba(0, 0, 0, 0.65);
+        --grid-line: rgba(120, 255, 190, 0.05);
+    }
+
+    /* ---------- 2. RESET & BASE ---------- */
+    * {
+        box-sizing: border-box;
+    }
+
+    html {
+        scroll-behavior: smooth;
+    }
+
+    body {
+        margin: 0;
+        background: var(--bg-void);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+        -webkit-font-smoothing: antialiased;
+        transition: background .5s var(--ease-out), color .5s var(--ease-out);
+        position: relative;
+        overflow-x: hidden;
+    }
+
+    /* Latar radar/grid + aurora bergerak pelan, di belakang segalanya */
+    body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -2;
+        background-image:
+            linear-gradient(var(--grid-line) 1px, transparent 1px),
+            linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+        background-size: 42px 42px;
+        -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 90%);
+        mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 90%);
+    }
+
+    #aurora-canvas {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        opacity: .55;
+    }
+
+    #cursor-glow {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 420px;
+        height: 420px;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 2;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle, var(--accent-a-glow) 0%, transparent 70%);
+        opacity: 0;
+        transition: opacity .4s ease;
+        mix-blend-mode: var(--cursor-blend, normal);
+        will-change: transform;
+    }
+
+    [data-theme="dark"] #cursor-glow {
+        --cursor-blend: screen;
+    }
+
+    body.cursor-active #cursor-glow {
+        opacity: .5;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+        font-family: var(--font-display);
+        font-weight: 600;
+        margin: 0;
+        letter-spacing: -0.01em;
+    }
+
+    p {
+        line-height: 1.65;
+        color: var(--text-muted);
+    }
+
+    a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .mono {
+        font-family: var(--font-mono);
+    }
+
+    ::selection {
+        background: var(--accent-a);
+        color: #04140d;
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--border-strong);
+        border-radius: 20px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--accent-a);
+    }
+
+    :focus-visible {
+        outline: 2px solid var(--accent-a);
+        outline-offset: 3px;
+        border-radius: 4px;
+    }
+
+    /* ---------- 3. REVEAL-ON-SCROLL ---------- */
+    .reveal {
+        opacity: 0;
+        transform: translateY(28px);
+        transition: opacity .8s var(--ease-out), transform .8s var(--ease-out);
+    }
+
+    .reveal.in-view {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .reveal-stagger>* {
+        opacity: 0;
+        transform: translateY(18px);
+        transition: opacity .6s var(--ease-out), transform .6s var(--ease-out);
+    }
+
+    .reveal-stagger.in-view>* {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+
+        *,
+        *::before,
+        *::after {
+            animation-duration: .001s !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: .001s !important;
+            scroll-behavior: auto !important;
+        }
+
+        .reveal,
+        .reveal-stagger>* {
+            opacity: 1 !important;
+            transform: none !important;
+        }
+    }
+
+    /* ---------- 4. TOPBAR (mobile) ---------- */
+    .topbar {
+        display: none;
+        position: sticky;
+        top: 0;
+        z-index: 40;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 16px;
+        background: var(--bg-panel);
+        backdrop-filter: blur(16px) saturate(160%);
+        border-bottom: 1px solid var(--border-soft);
+    }
+
+    .icon-btn {
+        background: transparent;
+        border: 1px solid var(--border-soft);
+        border-radius: 10px;
+        width: 40px;
+        height: 40px;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        color: var(--text-primary);
+        transition: border-color .25s, box-shadow .25s, transform .2s;
+    }
+
+    .icon-btn:hover {
+        border-color: var(--accent-a);
+        box-shadow: 0 0 16px var(--accent-a-glow);
+        transform: translateY(-1px);
+    }
+
+    .icon-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+
+    .hamburger,
+    .hamburger::before,
+    .hamburger::after {
+        content: "";
+        display: block;
+        width: 18px;
+        height: 2px;
+        background: currentColor;
+        border-radius: 2px;
+        transition: transform .3s var(--ease-out), opacity .3s;
+    }
+
+    .hamburger {
+        position: relative;
+    }
+
+    .hamburger::before {
+        position: absolute;
+        top: -6px;
+    }
+
+    .hamburger::after {
+        position: absolute;
+        top: 6px;
+    }
+
+    .topbar-brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--font-mono);
+        font-size: .78rem;
+        letter-spacing: .04em;
+        color: var(--text-muted);
+    }
+
+    .grain-mark {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        background: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+        box-shadow: 0 0 12px var(--accent-a-glow);
+        display: inline-block;
+        animation: pulse-glow 3s ease-in-out infinite;
+    }
+
+    .grain-mark.large {
+        width: 16px;
+        height: 16px;
+        border-radius: 5px;
+    }
+
+    .icon-moon {
+        display: none;
+    }
+
+    [data-theme="dark"] .icon-sun {
+        display: none;
+    }
+
+    [data-theme="dark"] .icon-moon {
+        display: block;
+    }
+
+    /* ---------- 5. APP SHELL / SIDEBAR ---------- */
+    .app-shell {
+        display: grid;
+        grid-template-columns: 272px 1fr;
+        min-height: 100vh;
+    }
+
+    .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 28px 22px;
+        background: var(--bg-panel);
+        backdrop-filter: blur(20px) saturate(160%);
+        border-right: 1px solid var(--border-soft);
+        z-index: 30;
+    }
+
+    .sidebar-header {
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        margin-bottom: 34px;
+    }
+
+    .sidebar-eyebrow {
+        margin: 0 0 4px;
+        font-family: var(--font-mono);
+        font-size: .68rem;
+        text-transform: uppercase;
+        letter-spacing: .09em;
+        color: var(--text-faint);
+    }
+
+    .sidebar-title {
+        margin: 0;
+        font-family: var(--font-display);
+        font-size: 1.15rem;
+        font-weight: 600;
+    }
+
+    .sidebar-nav {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    .nav-link {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: var(--radius-sm);
+        color: var(--text-muted);
+        font-size: .89rem;
+        transition: color .25s, background .25s;
+        overflow: hidden;
+    }
+
+    .nav-link::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 3px;
+        height: 0%;
+        background: linear-gradient(var(--accent-a), var(--accent-b));
+        box-shadow: 0 0 10px var(--accent-a-glow);
+        border-radius: 3px;
+        transition: height .3s var(--ease-out);
+    }
+
+    .nav-num {
+        font-family: var(--font-mono);
+        font-size: .72rem;
+        color: var(--text-faint);
+        transition: color .25s;
+    }
+
+    .nav-link:hover {
+        color: var(--text-primary);
+        background: rgba(120, 255, 190, .06);
+    }
+
+    .nav-link.active {
+        color: var(--text-primary);
+        background: rgba(120, 255, 190, .08);
+    }
+
+    .nav-link.active::before {
+        height: 60%;
+    }
+
+    .nav-link.active .nav-num {
+        color: var(--accent-a);
+    }
+
+    .sidebar-footer {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .theme-switch {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border-soft);
+        background: transparent;
+        color: var(--text-primary);
+        cursor: pointer;
+        font-family: var(--font-body);
+        font-size: .84rem;
+        transition: border-color .25s, box-shadow .25s;
+    }
+
+    .theme-switch:hover {
+        border-color: var(--accent-a);
+        box-shadow: 0 0 18px var(--accent-a-glow);
+    }
+
+    .theme-switch svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .sidebar-note {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: .68rem;
+        color: var(--text-faint);
+        line-height: 1.6;
+    }
+
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 25;
+        background: rgba(0, 0, 0, .5);
+        backdrop-filter: blur(2px);
+    }
+
+    /* ---------- 6. HERO ---------- */
+    .content {
+        position: relative;
+        padding: 0 48px 80px;
+        max-width: 1280px;
+        margin: 0 auto;
+    }
+
+    .section {
+        padding-top: 96px;
+        scroll-margin-top: 24px;
+    }
+
+    .hero-section {
+        position: relative;
+        min-height: 92vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding-top: 40px;
+        overflow: hidden;
+    }
+
+    .hero-terraces {
+        position: absolute;
+        inset: auto 0 0 0;
+        height: 60%;
+        z-index: -1;
+        opacity: .9;
+    }
+
+    .terrace-svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    .terrace {
+        fill: none;
+        stroke-width: 1.4;
+    }
+
+    .terrace-1 {
+        stroke: var(--accent-a);
+        opacity: .35;
+        fill: var(--accent-a);
+        fill-opacity: .04;
+        animation: contour-drift 14s ease-in-out infinite;
+    }
+
+    .terrace-2 {
+        stroke: var(--accent-b);
+        opacity: .28;
+        fill: var(--accent-b);
+        fill-opacity: .035;
+        animation: contour-drift 18s ease-in-out infinite reverse;
+    }
+
+    .terrace-3 {
+        stroke: var(--accent-a);
+        opacity: .2;
+        fill: var(--accent-a);
+        fill-opacity: .03;
+        animation: contour-drift 22s ease-in-out infinite;
+    }
+
+    /* scanline satelit menyapu hero — elemen signature halaman ini */
+    .hero-section::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--accent-a), var(--accent-b), transparent);
+        box-shadow: 0 0 16px var(--accent-a-glow);
+        animation: scan-sweep 7s linear infinite;
+        opacity: .8;
+    }
+
+    .eyebrow {
+        font-family: var(--font-mono);
+        font-size: .74rem;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+        color: var(--accent-a);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 18px;
+    }
+
+    .eyebrow::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent-a);
+        box-shadow: 0 0 8px var(--accent-a);
+        animation: pulse-glow 2s ease-in-out infinite;
+    }
+
+    .hero-title {
+        font-size: clamp(2.2rem, 5.2vw, 4.1rem);
+        line-height: 1.06;
+        margin-bottom: 22px;
+        background: linear-gradient(100deg, var(--text-primary) 30%, var(--accent-a) 55%, var(--accent-b) 75%, var(--text-primary) 100%);
+        background-size: 250% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: text-sheen 9s ease-in-out infinite;
+    }
+
+    .hero-lede {
+        max-width: 640px;
+        font-size: 1.02rem;
+        margin-bottom: 32px;
+    }
+
+    .hero-actions {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        margin-bottom: 44px;
+    }
+
+    .btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 13px 26px;
+        border-radius: 999px;
+        font-size: .89rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid transparent;
+        transition: transform .3s var(--ease-out), box-shadow .3s, border-color .3s, background .3s;
+        isolation: isolate;
+        overflow: hidden;
+    }
+
+    .btn:active {
+        transform: scale(.97);
+    }
+
+    .btn-primary {
+        background: linear-gradient(120deg, var(--accent-a), var(--accent-b));
+        color: #04140d;
+        box-shadow: 0 8px 30px -8px var(--accent-a-glow);
+    }
+
+    .btn-primary:hover {
+        box-shadow: 0 10px 40px -6px var(--accent-a-glow), 0 0 0 1px var(--accent-a);
+        transform: translateY(-2px);
+    }
+
+    .btn-primary::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        background: linear-gradient(120deg, transparent, rgba(255, 255, 255, .5), transparent);
+        transform: translateX(-120%) skewX(-20deg);
+        transition: transform .7s var(--ease-out);
+    }
+
+    .btn-primary:hover::before {
+        transform: translateX(120%) skewX(-20deg);
+    }
+
+    .btn-ghost {
+        background: var(--bg-panel);
+        border-color: var(--border-strong);
+        color: var(--text-primary);
+        backdrop-filter: blur(10px);
+    }
+
+    .btn-ghost:hover {
+        border-color: var(--accent-a);
+        box-shadow: 0 0 22px var(--accent-a-glow);
+        transform: translateY(-2px);
+    }
+
+    .btn-outline {
+        background: transparent;
+        border-color: var(--border-strong);
+        color: var(--text-primary);
+    }
+
+    .btn-outline:hover {
+        border-color: var(--accent-b);
+        color: var(--accent-b);
+    }
+
+    .btn-small {
+        padding: 9px 18px;
+        font-size: .8rem;
+    }
+
+    /* hero stats — dibaca sebagai telemetri satelit */
+    .hero-stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+    }
+
+    .hero-stats>* {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-md);
+        padding: 16px 20px;
+        backdrop-filter: blur(14px);
+        min-width: 140px;
+        position: relative;
+        transition: border-color .3s, transform .3s, box-shadow .3s;
+    }
+
+    .hero-stats>*:hover {
+        border-color: var(--accent-a);
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-lift);
+    }
+
+    .hero-stats>*:first-child::after {
+        content: "LIVE";
+        position: absolute;
+        top: 10px;
+        right: 12px;
+        font-family: var(--font-mono);
+        font-size: .58rem;
+        letter-spacing: .08em;
+        color: var(--accent-a);
+        animation: pulse-glow 2s ease-in-out infinite;
+    }
+
+    .hero-team {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+    }
+
+    .hero-team-label {
+        font-family: var(--font-mono);
+        font-size: .68rem;
+        text-transform: uppercase;
+        letter-spacing: .1em;
+        color: var(--text-faint);
+        margin: 0;
+    }
+
+    .team-list {
+        list-style: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+    }
+
+    .team-list li {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 8px 14px;
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-sm);
+        background: var(--bg-panel);
+        transition: border-color .3s, transform .25s;
+    }
+
+    .team-list li:hover {
+        border-color: var(--accent-b);
+        transform: translateY(-2px);
+    }
+
+    .team-role {
+        font-family: var(--font-mono);
+        font-size: .62rem;
+        text-transform: uppercase;
+        letter-spacing: .07em;
+        color: var(--accent-b);
+    }
+
+    .team-name {
+        font-size: .83rem;
+        font-weight: 600;
+    }
+
+    /* ---------- 7. SECTION HEAD ---------- */
+    .section-head {
+        display: flex;
+        gap: 20px;
+        align-items: flex-start;
+        margin-bottom: 32px;
+    }
+
+    .section-num {
+        font-family: var(--font-mono);
+        font-size: .95rem;
+        color: var(--accent-a);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        width: 46px;
+        height: 46px;
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+        background: var(--bg-panel);
+        box-shadow: inset 0 0 20px var(--accent-a-glow);
+    }
+
+    .section-head h2 {
+        font-size: clamp(1.5rem, 2.6vw, 2rem);
+        margin-bottom: 6px;
+    }
+
+    .section-sub {
+        margin: 0;
+        max-width: 620px;
+        font-size: .93rem;
+    }
+
+    /* ---------- 8. PANELS (console frame — bracket sudut) ---------- */
+    .panel {
+        position: relative;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-lg);
+        padding: 26px;
+        backdrop-filter: blur(16px) saturate(140%);
+        margin-bottom: 22px;
+        transition: border-color .35s, box-shadow .35s, transform .35s;
+    }
+
+    .panel::before,
+    .panel::after {
+        content: "";
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border: 1.5px solid var(--accent-a);
+        opacity: 0;
+        transition: opacity .35s var(--ease-out);
+    }
+
+    .panel::before {
+        top: 8px;
+        left: 8px;
+        border-right: none;
+        border-bottom: none;
+        border-radius: 4px 0 0 0;
+    }
+
+    .panel::after {
+        bottom: 8px;
+        right: 8px;
+        border-left: none;
+        border-top: none;
+        border-radius: 0 0 4px 0;
+    }
+
+    .panel:hover {
+        border-color: var(--border-strong);
+        box-shadow: var(--shadow-lift);
+    }
+
+    .panel:hover::before,
+    .panel:hover::after {
+        opacity: .8;
+    }
+
+    .panel-head {
+        margin-bottom: 18px;
+    }
+
+    .panel-head h3 {
+        font-size: 1.08rem;
+        margin-bottom: 4px;
+    }
+
+    .panel-sub {
+        margin: 0;
+        font-size: .84rem;
+    }
+
+    .panel-head-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .explain-panel {
+        border-left: 3px solid var(--accent-b);
+    }
+
+    .explain-panel p {
+        margin: 0;
+        color: var(--text-primary);
+        font-size: .92rem;
+    }
+
+    .interpretation {
+        border-left: 3px solid var(--accent-a);
+        background: var(--bg-panel);
+    }
+
+    .interpretation h4 {
+        font-size: .8rem;
+        text-transform: uppercase;
+        letter-spacing: .07em;
+        color: var(--accent-a);
+        margin-bottom: 10px;
+        font-family: var(--font-mono);
+        font-weight: 600;
+    }
+
+    .interpretation p,
+    .interpretation li {
+        font-size: .89rem;
+    }
+
+    .ai-disclosure {
+        border: 1px dashed var(--border-strong);
+        background: transparent;
+    }
+
+    .ai-disclosure h4 {
+        font-family: var(--font-mono);
+        font-size: .78rem;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--text-faint);
+        margin-bottom: 8px;
+    }
+
+    .ai-disclosure p {
+        font-size: .83rem;
+        margin: 0;
+    }
+
+    /* ---------- 9. FILTER PANEL ---------- */
+    .filter-panel {
+        display: grid;
+        grid-template-columns: 1.1fr 1.6fr auto;
+        gap: 26px;
+        align-items: end;
+    }
+
+    .filter-group label {
+        display: block;
+        font-family: var(--font-mono);
+        font-size: .7rem;
+        text-transform: uppercase;
+        letter-spacing: .07em;
+        color: var(--text-faint);
+        margin-bottom: 10px;
+    }
+
+    .range-row {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        position: relative;
+    }
+
+    input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 4px;
+        border-radius: 4px;
+        background: linear-gradient(90deg, var(--accent-a), var(--accent-b));
+        opacity: .85;
+        cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--bg-void-2);
+        border: 2px solid var(--accent-a);
+        box-shadow: 0 0 12px var(--accent-a-glow);
+        cursor: pointer;
+        transition: transform .2s;
+    }
+
+    input[type="range"]::-webkit-slider-thumb:hover {
+        transform: scale(1.25);
+    }
+
+    input[type="range"]::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--bg-void-2);
+        border: 2px solid var(--accent-a);
+        box-shadow: 0 0 12px var(--accent-a-glow);
+        cursor: pointer;
+    }
+
+    .range-readout {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: .82rem;
+        color: var(--text-primary);
+    }
+
+    .range-readout span {
+        color: var(--accent-a);
+        font-weight: 600;
+    }
+
+    .chip-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .chip,
+    .chip-group button,
+    .chip-group span.chip-item {
+        font-family: var(--font-mono);
+        font-size: .74rem;
+        padding: 7px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--border-soft);
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: all .25s var(--ease-out);
+    }
+
+    .chip:hover,
+    .chip-group button:hover {
+        border-color: var(--accent-b);
+        color: var(--text-primary);
+    }
+
+    .chip.active,
+    .chip-group button.active,
+    .chip-group [aria-pressed="true"] {
+        border-color: var(--accent-a);
+        color: var(--bg-void);
+        background: var(--accent-a);
+        box-shadow: 0 0 16px var(--accent-a-glow);
+    }
+
+    /* ---------- 10. SUMMARY / STAT GRID ---------- */
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+        gap: 16px;
+        margin-bottom: 26px;
+    }
+
+    .summary-grid>* {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-md);
+        padding: 18px 20px;
+        backdrop-filter: blur(14px);
+        transition: border-color .3s, transform .3s, box-shadow .3s;
+    }
+
+    .summary-grid>*:hover {
+        border-color: var(--accent-b);
+        transform: translateY(-3px);
+        box-shadow: var(--shadow-lift);
+    }
+
+    /* ---------- 11. GRIDS / CHART PANELS ---------- */
+    .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+    }
+
+    .chart-panel .chart-wrap {
+        position: relative;
+        height: 320px;
+    }
+
+    .chart-wrap canvas {
+        max-width: 100%;
+    }
+
+    .map-wrap {
+        height: 320px;
+        border-radius: var(--radius-md);
+        overflow: hidden;
+        border: 1px solid var(--border-soft);
+        filter: saturate(1.05);
+    }
+
+    [data-theme="dark"] .map-wrap {
+        filter: invert(1) hue-rotate(180deg) saturate(1.3) brightness(.95);
+    }
+
+    .leaflet-container {
+        background: var(--bg-void-2) !important;
+    }
+
+    /* ---------- 12. TABS ---------- */
+    .tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 22px;
+        padding: 5px;
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
+        border-radius: 999px;
+        width: fit-content;
+        backdrop-filter: blur(12px);
+    }
+
+    .tab-btn {
+        font-family: var(--font-mono);
+        font-size: .78rem;
+        padding: 9px 18px;
+        border-radius: 999px;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: color .3s, background .3s;
+    }
+
+    .tab-btn:hover {
+        color: var(--text-primary);
+    }
+
+    .tab-btn.active {
+        color: var(--bg-void);
+        background: linear-gradient(120deg, var(--accent-a), var(--accent-b));
+        box-shadow: 0 0 18px var(--accent-a-glow);
+    }
+
+    .tab-panel {
+        display: none;
+    }
+
+    .tab-panel.active {
+        display: block;
+        animation: fade-up .5s var(--ease-out);
+    }
+
+    /* ---------- 13. TABLES ---------- */
+    .table-scroll {
+        overflow-x: auto;
+        border-radius: var(--radius-md);
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: .87rem;
+        min-width: 560px;
+    }
+
+    .data-table thead th {
+        text-align: left;
+        font-family: var(--font-mono);
+        font-size: .68rem;
+        text-transform: uppercase;
+        letter-spacing: .06em;
+        color: var(--accent-a);
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border-strong);
+        position: sticky;
+        top: 0;
+        background: var(--bg-panel-solid);
+    }
+
+    .data-table tbody td {
+        padding: 11px 14px;
+        border-bottom: 1px solid var(--border-soft);
+        color: var(--text-primary);
+    }
+
+    .data-table tbody tr {
+        transition: background .25s;
+    }
+
+    .data-table tbody tr:hover {
+        background: rgba(120, 255, 190, .06);
+    }
+
+    /* ---------- 14. HEATMAP (generik, mendukung sel apa pun dari JS) ---------- */
+    .heatmap-wrap {
+        display: grid;
+        gap: 3px;
+    }
+
+    .heatmap-wrap>* {
+        border-radius: 6px;
+        transition: transform .2s, box-shadow .2s;
+    }
+
+    .heatmap-wrap>*:hover {
+        transform: scale(1.06);
+        box-shadow: 0 0 14px var(--accent-a-glow);
+        z-index: 2;
+    }
+
+    /* ---------- 15. HYPOTHESIS / INSIGHT CARDS ---------- */
+    .hypothesis-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 18px;
+    }
+
+    .hypothesis-grid>* {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-md);
+        padding: 20px;
+        backdrop-filter: blur(14px);
+        transition: border-color .3s, transform .3s;
+    }
+
+    .hypothesis-grid>*:hover {
+        border-color: var(--accent-b);
+        transform: translateY(-3px);
+    }
+
+    .insight-columns {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 22px;
+    }
+
+    .insight-card ul {
+        margin: 0;
+        padding-left: 20px;
+    }
+
+    .insight-card li {
+        margin-bottom: 10px;
+        font-size: .89rem;
+        color: var(--text-muted);
+    }
+
+    .insight-card li::marker {
+        color: var(--accent-a);
+    }
+
+    /* ---------- 16. SELECT / INPUTS ---------- */
+    .select-input {
+        font-family: var(--font-mono);
+        font-size: .78rem;
+        padding: 9px 14px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border-soft);
+        background: var(--bg-panel-solid);
+        color: var(--text-primary);
+        cursor: pointer;
+        transition: border-color .25s;
+    }
+
+    .select-input:hover,
+    .select-input:focus {
+        border-color: var(--accent-a);
+    }
+
+    /* ---------- 17. FOOTER ---------- */
+    .site-footer {
+        margin-top: 60px;
+        padding-top: 26px;
+        border-top: 1px solid var(--border-soft);
+        text-align: center;
+    }
+
+    .site-footer p {
+        margin: 0 0 6px;
+        font-size: .8rem;
+    }
+
+    /* ---------- 18. TOAST ---------- */
+    .toast-container {
+        position: fixed;
+        bottom: 22px;
+        right: 22px;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .toast {
+        background: var(--bg-panel-solid);
+        border: 1px solid var(--border-strong);
+        border-left: 3px solid var(--accent-a);
+        border-radius: var(--radius-sm);
+        padding: 12px 18px;
+        font-size: .85rem;
+        color: var(--text-primary);
+        box-shadow: var(--shadow-lift);
+        animation: toast-in .4s var(--ease-out);
+    }
+
+    /* ---------- 19. KEYFRAMES ---------- */
+    @keyframes pulse-glow {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: .35;
+        }
+    }
+
+    @keyframes scan-sweep {
+        0% {
+            top: 0;
+            opacity: 0;
+        }
+
+        8% {
+            opacity: .9;
+        }
+
+        92% {
+            opacity: .9;
+        }
+
+        100% {
+            top: 100%;
+            opacity: 0;
+        }
+    }
+
+    @keyframes contour-drift {
+
+        0%,
+        100% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-8px);
+        }
+    }
+
+    @keyframes text-sheen {
+
+        0%,
+        100% {
+            background-position: 0% 50%;
+        }
+
+        50% {
+            background-position: 100% 50%;
+        }
+    }
+
+    @keyframes fade-up {
+        from {
+            opacity: 0;
+            transform: translateY(14px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes toast-in {
+        from {
+            opacity: 0;
+            transform: translateX(30px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+
+    @keyframes count-flicker {
+        0% {
+            opacity: .3;
+        }
+
+        100% {
+            opacity: 1;
+        }
+    }
+
+    .count-animate {
+        animation: count-flicker .4s ease-out;
+    }
+
+    /* ---------- 20. RESPONSIVE ---------- */
+    @media (max-width: 1080px) {
+        .grid-2 {
+            grid-template-columns: 1fr;
+        }
+
+        .insight-columns {
+            grid-template-columns: 1fr;
+        }
+
+        .filter-panel {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @media (max-width: 880px) {
+        .topbar {
+            display: flex;
+        }
+
+        .app-shell {
+            grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100vh;
+            width: 280px;
+            transform: translateX(-104%);
+            transition: transform .4s var(--ease-out);
+        }
+
+        .sidebar.open {
+            transform: translateX(0);
+        }
+
+        .sidebar-overlay.open {
+            display: block;
+        }
+
+        .content {
+            padding: 0 20px 60px;
+        }
+
+        .hero-stats>* {
+            min-width: 45%;
+            flex: 1;
+        }
+
+        #cursor-glow {
+            display: none;
+        }
+    }
+</style>
+
+<body>
+
+    <!-- ============ TOAST CONTAINER ============ -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <!-- ============ TOP BAR (mobile) ============ -->
+    <header class="topbar">
+        <button id="sidebar-toggle" class="icon-btn" aria-label="Buka menu navigasi">
+            <span class="hamburger"></span>
+        </button>
+        <div class="topbar-brand">
+            <span class="grain-mark" aria-hidden="true"></span>
+            <span>Padi Sumatera · Bab Analisis</span>
+        </div>
+        <button id="theme-toggle-mobile" class="icon-btn" aria-label="Ganti mode terang/gelap">
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="4" />
+                <path
+                    d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            </svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z" />
+            </svg>
+        </button>
+    </header>
+
+    <div class="app-shell">
+
+        <!-- ============ SIDEBAR ============ -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <span class="grain-mark large" aria-hidden="true"></span>
+                <div>
+                    <p class="sidebar-eyebrow">Tugas Besar &middot; Analisis Data Statistika</p>
+                    <p class="sidebar-title">Padi Sumatera</p>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav" aria-label="Navigasi bagian laporan">
+                <a href="#beranda" class="nav-link" data-nav="beranda"><span
+                        class="nav-num">00</span><span>Beranda</span></a>
+                <a href="#dashboard" class="nav-link" data-nav="dashboard"><span
+                        class="nav-num">01</span><span>Dashboard</span></a>
+                <a href="#deskriptif" class="nav-link" data-nav="deskriptif"><span
+                        class="nav-num">02</span><span>Statistik Deskriptif</span></a>
+                <a href="#visualisasi" class="nav-link" data-nav="visualisasi"><span
+                        class="nav-num">03</span><span>Visualisasi Data</span></a>
+                <a href="#normalitas" class="nav-link" data-nav="normalitas"><span class="nav-num">04</span><span>Uji
+                        Normalitas</span></a>
+                <a href="#spearman" class="nav-link" data-nav="spearman"><span class="nav-num">05</span><span>Korelasi
+                        Spearman</span></a>
+                <a href="#insight" class="nav-link" data-nav="insight"><span class="nav-num">06</span><span>Insight
+                        &amp; Kesimpulan</span></a>
+            </nav>
+
+            <div class="sidebar-footer">
+                <button id="theme-toggle" class="theme-switch" aria-label="Ganti mode terang/gelap">
+                    <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="4" />
+                        <path
+                            d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+                    </svg>
+                    <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z" />
+                    </svg>
+                    <span id="theme-toggle-label">Mode Gelap</span>
+                </button>
+                <p class="sidebar-note">Sumber: Data Tanaman Padi Sumatera (1993&ndash;2020)</p>
+            </div>
+        </aside>
+
+        <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+        <!-- ============ MAIN CONTENT ============ -->
+        <main class="content">
+
+            <!-- ===================================================== -->
+            <!-- 00 BERANDA -->
+            <!-- ===================================================== -->
+            <section id="beranda" class="section hero-section">
+                <div class="hero-terraces" aria-hidden="true">
+                    <svg viewBox="0 0 1200 400" preserveAspectRatio="none" class="terrace-svg">
+                        <path class="terrace terrace-1" d="M0,400 L0,300 Q300,260 600,290 T1200,270 L1200,400 Z"></path>
+                        <path class="terrace terrace-2" d="M0,400 L0,340 Q300,310 600,335 T1200,320 L1200,400 Z"></path>
+                        <path class="terrace terrace-3" d="M0,400 L0,375 Q300,360 600,375 T1200,365 L1200,400 Z"></path>
+                    </svg>
+                </div>
+
+                <div class="hero-inner">
+                    <p class="eyebrow">Kelompok 2 &middot; Analisis Data Statistika</p>
+                    <h1 class="hero-title">Membaca Panen Sumatera<br>Lewat Angka, 1993&ndash;2020</h1>
+                    <p class="hero-lede">
+                        Proyek analisis data end-to-end untuk memahami pola produksi padi di delapan provinsi
+                        Pulau Sumatera, menelusuri hubungan antara luas panen, curah hujan, kelembapan, dan suhu
+                        rata-rata terhadap hasil produksi &mdash; menggunakan statistik deskriptif, uji normalitas
+                        Shapiro-Wilk, dan uji korelasi Spearman.
+                    </p>
+                    <div class="hero-actions">
+                        <a href="#dashboard" class="btn btn-primary">Buka Dashboard</a>
+                        <a href="#insight" class="btn btn-ghost">Lihat Kesimpulan</a>
+                    </div>
+
+                    <div class="hero-stats" id="hero-stats"><!-- filled by JS --></div>
+                </div>
+
+                <div class="hero-team">
+                    <p class="hero-team-label">Disusun oleh</p>
+                    <ul class="team-list">
+                        <li><span class="team-role">Ketua</span><span class="team-name">Azhar Jawad</span></li>
+                        <li><span class="team-role">Anggota</span><span class="team-name">Fachri Muzzaki</span></li>
+                        <li><span class="team-role">Anggota</span><span class="team-name">Rayhan Zacky</span></li>
+                        <li><span class="team-role">Anggota</span><span class="team-name">Raffi Islamay Putra</span>
+                        </li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- ===================================================== -->
+            <!-- 01 DASHBOARD -->
+            <!-- ===================================================== -->
+            <section id="dashboard" class="section">
+                <header class="section-head">
+                    <span class="section-num">01</span>
+                    <div>
+                        <h2>Dashboard Utama</h2>
+                        <p class="section-sub">Ringkasan interaktif &mdash; saring berdasarkan tahun dan provinsi untuk
+                            menjelajahi data.</p>
+                    </div>
+                </header>
+
+                <div class="panel filter-panel">
+                    <div class="filter-group">
+                        <label for="year-start">Rentang Tahun</label>
+                        <div class="range-row">
+                            <input type="range" id="year-start" min="1993" max="2020" value="1993" step="1">
+                            <input type="range" id="year-end" min="1993" max="2020" value="2020" step="1">
+                        </div>
+                        <p class="range-readout"><span id="year-start-label">1993</span> &ndash; <span
+                                id="year-end-label">2020</span></p>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Provinsi</label>
+                        <div class="chip-group" id="provinsi-filter"><!-- filled by JS --></div>
+                    </div>
+
+                    <button id="filter-reset" class="btn btn-outline btn-small">Reset Filter</button>
+                </div>
+
+                <div class="summary-grid" id="summary-cards"><!-- filled by JS --></div>
+
+                <div class="grid-2">
+                    <div class="panel chart-panel">
+                        <div class="panel-head">
+                            <h3>Tren Produksi per Tahun</h3>
+                            <p class="panel-sub">Diagram garis produksi padi (ton) per provinsi terpilih</p>
+                        </div>
+                        <div class="chart-wrap"><canvas id="chart-line"></canvas></div>
+                    </div>
+
+                    <div class="panel chart-panel">
+                        <div class="panel-head">
+                            <h3>Peta Sebaran Provinsi</h3>
+                            <p class="panel-sub">Ukuran lingkaran = rata-rata produksi. Klik provinsi untuk drill-down.
+                            </p>
+                        </div>
+                        <div id="map" class="map-wrap"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================================================== -->
+            <!-- 02 STATISTIK DESKRIPTIF -->
+            <!-- ===================================================== -->
+            <section id="deskriptif" class="section">
+                <header class="section-head">
+                    <span class="section-num">02</span>
+                    <div>
+                        <h2>Statistik Deskriptif</h2>
+                        <p class="section-sub">Ukuran pemusatan dan penyebaran data untuk lima variabel numerik (seluruh
+                            data, 1993&ndash;2020).</p>
+                    </div>
+                </header>
+
+                <div class="panel">
+                    <div class="table-scroll">
+                        <table class="data-table" id="deskriptif-table"><!-- filled by JS --></table>
+                    </div>
+                </div>
+
+                <div class="panel interpretation" id="deskriptif-interpretasi">
+                    <h4>Interpretasi</h4>
+                    <!-- filled by JS -->
+                </div>
+            </section>
+
+            <!-- ===================================================== -->
+            <!-- 03 VISUALISASI -->
+            <!-- ===================================================== -->
+            <section id="visualisasi" class="section">
+                <header class="section-head">
+                    <span class="section-num">03</span>
+                    <div>
+                        <h2>Visualisasi Data</h2>
+                        <p class="section-sub">Distribusi, outlier, hubungan antar variabel, dan kekuatan korelasi.</p>
+                    </div>
+                </header>
+
+                <div class="tabs" id="viz-tabs">
+                    <button class="tab-btn active" data-tab="hist">Histogram</button>
+                    <button class="tab-btn" data-tab="box">Boxplot</button>
+                    <button class="tab-btn" data-tab="scatter">Scatter Plot</button>
+                    <button class="tab-btn" data-tab="heat">Heatmap</button>
+                </div>
+
+                <div class="tab-panel active" id="tab-hist">
+                    <div class="panel">
+                        <div class="panel-head panel-head-row">
+                            <div>
+                                <h3>Distribusi Variabel</h3>
+                                <p class="panel-sub">Histogram dengan kurva kepadatan (KDE), garis mean &amp; median</p>
+                            </div>
+                            <select id="hist-var-select" class="select-input"></select>
+                        </div>
+                        <div class="chart-wrap"><canvas id="chart-hist"></canvas></div>
+                    </div>
+                    <div class="panel interpretation" id="hist-interpretasi">
+                        <h4>Interpretasi</h4>
+                    </div>
+                </div>
+
+                <div class="tab-panel" id="tab-box">
+                    <div class="panel">
+                        <div class="panel-head">
+                            <h3>Boxplot &mdash; Deteksi Outlier</h3>
+                            <p class="panel-sub">Sebaran dan nilai pencilan tiap variabel (berdasarkan IQR)</p>
+                        </div>
+                        <div class="chart-wrap"><canvas id="chart-box"></canvas></div>
+                    </div>
+                    <div class="panel interpretation" id="box-interpretasi">
+                        <h4>Interpretasi</h4>
+                    </div>
+                </div>
+
+                <div class="tab-panel" id="tab-scatter">
+                    <div class="panel">
+                        <div class="panel-head panel-head-row">
+                            <div>
+                                <h3>Scatter Plot vs Produksi</h3>
+                                <p class="panel-sub">Hubungan variabel agroklimat dengan produksi padi</p>
+                            </div>
+                            <select id="scatter-var-select" class="select-input"></select>
+                        </div>
+                        <div class="chart-wrap"><canvas id="chart-scatter"></canvas></div>
+                    </div>
+                    <div class="panel interpretation" id="scatter-interpretasi">
+                        <h4>Interpretasi</h4>
+                    </div>
+                </div>
+
+                <div class="tab-panel" id="tab-heat">
+                    <div class="panel">
+                        <div class="panel-head">
+                            <h3>Heatmap Korelasi Antar Variabel</h3>
+                            <p class="panel-sub">Koefisien korelasi Pearson antar lima variabel numerik</p>
+                        </div>
+                        <div class="heatmap-wrap" id="heatmap"><!-- filled by JS --></div>
+                    </div>
+                    <div class="panel interpretation" id="heat-interpretasi">
+                        <h4>Interpretasi</h4>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ===================================================== -->
+            <!-- 04 UJI NORMALITAS -->
+            <!-- ===================================================== -->
+            <section id="normalitas" class="section">
+                <header class="section-head">
+                    <span class="section-num">04</span>
+                    <div>
+                        <h2>Uji Normalitas &mdash; Shapiro-Wilk</h2>
+                        <p class="section-sub">Menentukan apakah data berdistribusi normal, sebagai dasar pemilihan uji
+                            korelasi.</p>
+                    </div>
+                </header>
+
+                <div class="panel explain-panel">
+                    <p>Uji Shapiro-Wilk menguji hipotesis nol bahwa suatu variabel berasal dari populasi
+                        berdistribusi normal. Jika nilai <span class="mono">p-value &lt; 0.05</span>, H0 ditolak
+                        dan data dinyatakan <strong>tidak berdistribusi normal</strong> pada taraf signifikansi 5%.</p>
+                </div>
+
+                <div class="panel">
+                    <div class="table-scroll">
+                        <table class="data-table" id="shapiro-table"><!-- filled by JS --></table>
+                    </div>
+                </div>
+
+                <div class="panel interpretation" id="normalitas-interpretasi">
+                    <h4>Kesimpulan</h4>
+                    <!-- filled by JS -->
+                </div>
+            </section>
+
+            <!-- ===================================================== -->
+            <!-- 05 KORELASI SPEARMAN -->
+            <!-- ===================================================== -->
+            <section id="spearman" class="section">
+                <header class="section-head">
+                    <span class="section-num">05</span>
+                    <div>
+                        <h2>Uji Korelasi Spearman</h2>
+                        <p class="section-sub">Karena data tidak berdistribusi normal, korelasi Spearman (rank-based)
+                            digunakan &mdash; &alpha; = 0.05.</p>
+                    </div>
+                </header>
+
+                <div class="hypothesis-grid" id="hypothesis-cards"><!-- filled by JS --></div>
+            </section>
+
+            <!-- ===================================================== -->
+            <!-- 06 INSIGHT & KESIMPULAN -->
+            <!-- ===================================================== -->
+            <section id="insight" class="section">
+                <header class="section-head">
+                    <span class="section-num">06</span>
+                    <div>
+                        <h2>Insight, Rekomendasi &amp; Kesimpulan</h2>
+                        <p class="section-sub">Merangkum temuan menjadi wawasan yang dapat ditindaklanjuti.</p>
+                    </div>
+                </header>
+
+                <div class="grid-2">
+                    <div class="panel chart-panel">
+                        <div class="panel-head">
+                            <h3>Peringkat Rata-rata Produksi per Provinsi</h3>
+                        </div>
+                        <div class="chart-wrap"><canvas id="chart-final-rank"></canvas></div>
+                    </div>
+                    <div class="panel chart-panel">
+                        <div class="panel-head">
+                            <h3>Kekuatan Korelasi (|rho|) Setiap Variabel</h3>
+                        </div>
+                        <div class="chart-wrap"><canvas id="chart-final-corr"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="insight-columns">
+                    <div class="panel insight-card">
+                        <h4>Insight Utama</h4>
+                        <ul id="insight-list"><!-- filled by JS --></ul>
+                    </div>
+                    <div class="panel insight-card">
+                        <h4>Rekomendasi</h4>
+                        <ul id="rekomendasi-list"><!-- filled by JS --></ul>
+                    </div>
+                </div>
+
+                <div class="panel ai-disclosure">
+                    <h4>Deklarasi Penggunaan AI</h4>
+                    <p>Analisis statistik inti (deskriptif, uji Shapiro-Wilk, dan korelasi Spearman) dihitung
+                        menggunakan kode Python (<span class="mono">proyek_ads.py</span>) yang ditulis dan dijalankan
+                        oleh tim penulis. Asisten AI digunakan untuk membantu menyusun struktur website ini
+                        (HTML/CSS/JavaScript) agar hasil analisis dapat ditampilkan secara interaktif, tanpa mengubah
+                        logika maupun hasil perhitungan statistik pada kode aslinya.</p>
+                </div>
+
+                <footer class="site-footer">
+                    <p>Tugas Besar Analisis Data Statistika &middot; Kelompok 2 &middot; Azhar Jawad, Fachri Muzzaki,
+                        Rayhan Zacky, Raffi Islamay Putra</p>
+                    <p class="mono">Data: Produksi Padi Sumatera, 1993&ndash;2020</p>
+                </footer>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+// ============================================================
+// DATA.JS — Data & hasil analisis statistik (dihasilkan dari
+// proyek_ads.py, dataset Data_Tanaman_Padi_Sumatera_version_1.csv)
+// Semua angka di file ini adalah OUTPUT ASLI dari kode Python
+// (pandas, scipy.stats) — bukan data rekaan.
+// ============================================================
+window.PADI_DATA = {
+  "meta": {
+    "n_rows": 224,
+    "n_provinsi": 8,
+    "provinsi_list": [
+      "Aceh",
+      "Bengkulu",
+      "Jambi",
+      "Lampung",
+      "Riau",
+      "Sumatera Barat",
+      "Sumatera Selatan",
+      "Sumatera Utara"
+    ],
+    "kolom_numerik": [
+      "Produksi",
+      "Luas Panen",
+      "Curah hujan",
+      "Kelembapan",
+      "Suhu rata-rata"
+    ],
+    "tahun_min": 1993,
+    "tahun_max": 2020
+  },
+  "rows": [
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 1993,
+      "Produksi": 1329536.0,
+      "Luas Panen": 323589.0,
+      "Curah hujan": 1627.0,
+      "Kelembapan": 82.0,
+      "Suhu rata-rata": 26.06
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 1994,
+      "Produksi": 1299699.0,
+      "Luas Panen": 329041.0,
+      "Curah hujan": 1521.0,
+      "Kelembapan": 82.12,
+      "Suhu rata-rata": 26.92
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 1995,
+      "Produksi": 1382905.0,
+      "Luas Panen": 339253.0,
+      "Curah hujan": 1476.0,
+      "Kelembapan": 82.72,
+      "Suhu rata-rata": 26.27
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 1996,
+      "Produksi": 1419128.0,
+      "Luas Panen": 348223.0,
+      "Curah hujan": 1557.0,
+      "Kelembapan": 83.0,
+      "Suhu rata-rata": 26.08
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 1997,
+      "Produksi": 1368074.0,
+      "Luas Panen": 337561.0,
+      "Curah hujan": 1339.0,
+      "Kelembapan": 82.46,
+      "Suhu rata-rata": 26.31
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 1998,
+      "Produksi": 1404580.0,
+      "Luas Panen": 365892.0,
+      "Curah hujan": 1465.0,
+      "Kelembapan": 82.6,
+      "Suhu rata-rata": 26.84
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 1999,
+      "Produksi": 1478712.0,
+      "Luas Panen": 359817.0,
+      "Curah hujan": 1778.0,
+      "Kelembapan": 82.79,
+      "Suhu rata-rata": 26.14
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2000,
+      "Produksi": 1486909.0,
+      "Luas Panen": 336765.0,
+      "Curah hujan": 1974.7,
+      "Kelembapan": 90.6,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2001,
+      "Produksi": 1547499.0,
+      "Luas Panen": 295212.0,
+      "Curah hujan": 1688.7,
+      "Kelembapan": 69.48,
+      "Suhu rata-rata": 28.9
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2002,
+      "Produksi": 1314165.0,
+      "Luas Panen": 315131.0,
+      "Curah hujan": 1296.8,
+      "Kelembapan": 68.75,
+      "Suhu rata-rata": 29.2
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2003,
+      "Produksi": 1246614.0,
+      "Luas Panen": 367636.0,
+      "Curah hujan": 1507.2,
+      "Kelembapan": 70.66,
+      "Suhu rata-rata": 29.4
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2004,
+      "Produksi": 1350748.0,
+      "Luas Panen": 370966.0,
+      "Curah hujan": 1097.0,
+      "Kelembapan": 80.84,
+      "Suhu rata-rata": 29.4
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2005,
+      "Produksi": 1411650.0,
+      "Luas Panen": 337893.0,
+      "Curah hujan": 710.5,
+      "Kelembapan": 79.5,
+      "Suhu rata-rata": 26.8
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2006,
+      "Produksi": 1552078.0,
+      "Luas Panen": 320789.0,
+      "Curah hujan": 506.5,
+      "Kelembapan": 80.8,
+      "Suhu rata-rata": 26.73
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2007,
+      "Produksi": 1556858.0,
+      "Luas Panen": 360717.0,
+      "Curah hujan": 1414.0,
+      "Kelembapan": 81.5,
+      "Suhu rata-rata": 26.38
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2008,
+      "Produksi": 1402287.0,
+      "Luas Panen": 329109.0,
+      "Curah hujan": 1270.4,
+      "Kelembapan": 78.5,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2009,
+      "Produksi": 1533369.0,
+      "Luas Panen": 359375.0,
+      "Curah hujan": 1577.0,
+      "Kelembapan": 78.7,
+      "Suhu rata-rata": 26.9
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2010,
+      "Produksi": 1788738.0,
+      "Luas Panen": 352281.0,
+      "Curah hujan": 1986.0,
+      "Kelembapan": 81.4,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2011,
+      "Produksi": 1772962.0,
+      "Luas Panen": 380686.0,
+      "Curah hujan": 1268.0,
+      "Kelembapan": 79.4,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2012,
+      "Produksi": 1582393.0,
+      "Luas Panen": 387803.0,
+      "Curah hujan": 1098.0,
+      "Kelembapan": 79.6,
+      "Suhu rata-rata": 26.9
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2013,
+      "Produksi": 2331046.0,
+      "Luas Panen": 419183.0,
+      "Curah hujan": 1623.6,
+      "Kelembapan": 80.7,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2014,
+      "Produksi": 1820062.0,
+      "Luas Panen": 376137.0,
+      "Curah hujan": 2264.4,
+      "Kelembapan": 78.3,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2015,
+      "Produksi": 1956940.0,
+      "Luas Panen": 461060.0,
+      "Curah hujan": 1575.0,
+      "Kelembapan": 80.0,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2016,
+      "Produksi": 2180754.0,
+      "Luas Panen": 293067.0,
+      "Curah hujan": 1096.0,
+      "Kelembapan": 83.32,
+      "Suhu rata-rata": 27.12
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2017,
+      "Produksi": 2478922.0,
+      "Luas Panen": 294483.0,
+      "Curah hujan": 1905.9,
+      "Kelembapan": 85.57,
+      "Suhu rata-rata": 26.51
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2018,
+      "Produksi": 1751996.94,
+      "Luas Panen": 329515.78,
+      "Curah hujan": 1427.8,
+      "Kelembapan": 83.98,
+      "Suhu rata-rata": 26.48
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2019,
+      "Produksi": 1714437.6,
+      "Luas Panen": 310012.46,
+      "Curah hujan": 1931.4,
+      "Kelembapan": 83.9,
+      "Suhu rata-rata": 26.65
+    },
+    {
+      "Provinsi": "Aceh",
+      "Tahun": 2020,
+      "Produksi": 1861567.1,
+      "Luas Panen": 317869.41,
+      "Curah hujan": 1619.2,
+      "Kelembapan": 80.82,
+      "Suhu rata-rata": 25.41
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 1993,
+      "Produksi": 2918152.0,
+      "Luas Panen": 754569.0,
+      "Curah hujan": 2549.4,
+      "Kelembapan": 83.8,
+      "Suhu rata-rata": 26.45
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 1994,
+      "Produksi": 3079960.0,
+      "Luas Panen": 792534.0,
+      "Curah hujan": 2166.5,
+      "Kelembapan": 83.79,
+      "Suhu rata-rata": 26.4
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 1995,
+      "Produksi": 3134533.0,
+      "Luas Panen": 795183.0,
+      "Curah hujan": 2917.1,
+      "Kelembapan": 81.68,
+      "Suhu rata-rata": 26.58
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 1996,
+      "Produksi": 3136760.0,
+      "Luas Panen": 790051.0,
+      "Curah hujan": 2326.5,
+      "Kelembapan": 81.31,
+      "Suhu rata-rata": 26.33
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 1997,
+      "Produksi": 3212208.0,
+      "Luas Panen": 797545.0,
+      "Curah hujan": 1865.0,
+      "Kelembapan": 81.81,
+      "Suhu rata-rata": 26.4
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 1998,
+      "Produksi": 3321049.0,
+      "Luas Panen": 823749.0,
+      "Curah hujan": 2496.9,
+      "Kelembapan": 83.53,
+      "Suhu rata-rata": 27.16
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 1999,
+      "Produksi": 3451430.0,
+      "Luas Panen": 838626.0,
+      "Curah hujan": 3087.3,
+      "Kelembapan": 84.56,
+      "Suhu rata-rata": 26.45
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2000,
+      "Produksi": 3514253.0,
+      "Luas Panen": 847610.0,
+      "Curah hujan": 1289.5,
+      "Kelembapan": 82.94,
+      "Suhu rata-rata": 27.7
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2001,
+      "Produksi": 3291515.0,
+      "Luas Panen": 801948.0,
+      "Curah hujan": 3595.3,
+      "Kelembapan": 72.78,
+      "Suhu rata-rata": 28.03
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2002,
+      "Produksi": 3153305.0,
+      "Luas Panen": 765161.0,
+      "Curah hujan": 1944.9,
+      "Kelembapan": 72.31,
+      "Suhu rata-rata": 28.45
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2003,
+      "Produksi": 3403075.0,
+      "Luas Panen": 825188.0,
+      "Curah hujan": 3140.2,
+      "Kelembapan": 72.08,
+      "Suhu rata-rata": 29.59
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2004,
+      "Produksi": 3418782.0,
+      "Luas Panen": 826091.0,
+      "Curah hujan": 2406.9,
+      "Kelembapan": 80.79,
+      "Suhu rata-rata": 29.27
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2005,
+      "Produksi": 3447394.0,
+      "Luas Panen": 822073.0,
+      "Curah hujan": 776.7,
+      "Kelembapan": 83.8,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2006,
+      "Produksi": 3007636.0,
+      "Luas Panen": 705023.0,
+      "Curah hujan": 222.5,
+      "Kelembapan": 81.0,
+      "Suhu rata-rata": 27.8
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2007,
+      "Produksi": 3265834.0,
+      "Luas Panen": 750232.0,
+      "Curah hujan": 2513.0,
+      "Kelembapan": 82.0,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2008,
+      "Produksi": 3340794.0,
+      "Luas Panen": 748540.0,
+      "Curah hujan": 2442.0,
+      "Kelembapan": 81.4,
+      "Suhu rata-rata": 26.9
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2009,
+      "Produksi": 3527899.0,
+      "Luas Panen": 768407.0,
+      "Curah hujan": 2184.0,
+      "Kelembapan": 86.0,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2010,
+      "Produksi": 3582302.0,
+      "Luas Panen": 754674.0,
+      "Curah hujan": 1903.3,
+      "Kelembapan": 78.55,
+      "Suhu rata-rata": 27.18
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2011,
+      "Produksi": 3607403.0,
+      "Luas Panen": 757547.0,
+      "Curah hujan": 2042.0,
+      "Kelembapan": 79.0,
+      "Suhu rata-rata": 27.2
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2012,
+      "Produksi": 3715514.0,
+      "Luas Panen": 765099.0,
+      "Curah hujan": 3175.0,
+      "Kelembapan": 76.0,
+      "Suhu rata-rata": 27.3
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2013,
+      "Produksi": 3727249.0,
+      "Luas Panen": 742968.0,
+      "Curah hujan": 2627.0,
+      "Kelembapan": 78.67,
+      "Suhu rata-rata": 28.8
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2014,
+      "Produksi": 3631039.0,
+      "Luas Panen": 717318.0,
+      "Curah hujan": 2148.0,
+      "Kelembapan": 79.0,
+      "Suhu rata-rata": 27.9
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2015,
+      "Produksi": 4044829.0,
+      "Luas Panen": 781769.0,
+      "Curah hujan": 975.9,
+      "Kelembapan": 86.9,
+      "Suhu rata-rata": 27.4
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2016,
+      "Produksi": 4387035.9,
+      "Luas Panen": 423029.0,
+      "Curah hujan": 2384.0,
+      "Kelembapan": 82.0,
+      "Suhu rata-rata": 27.65
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2017,
+      "Produksi": 4669777.5,
+      "Luas Panen": 415675.0,
+      "Curah hujan": 3190.0,
+      "Kelembapan": 84.0,
+      "Suhu rata-rata": 27.5
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2018,
+      "Produksi": 2108284.72,
+      "Luas Panen": 408176.45,
+      "Curah hujan": 2431.0,
+      "Kelembapan": 80.0,
+      "Suhu rata-rata": 26.41
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2019,
+      "Produksi": 2078901.59,
+      "Luas Panen": 413141.24,
+      "Curah hujan": 1401.6,
+      "Kelembapan": 86.53,
+      "Suhu rata-rata": 27.03
+    },
+    {
+      "Provinsi": "Sumatera Utara",
+      "Tahun": 2020,
+      "Produksi": 2076280.01,
+      "Luas Panen": 388591.22,
+      "Curah hujan": 1648.3,
+      "Kelembapan": 83.76,
+      "Suhu rata-rata": 25.79
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 1993,
+      "Produksi": 1806424.0,
+      "Luas Panen": 394412.0,
+      "Curah hujan": 5110.0,
+      "Kelembapan": 89.77,
+      "Suhu rata-rata": 24.7
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 1994,
+      "Produksi": 1747543.0,
+      "Luas Panen": 382740.0,
+      "Curah hujan": 4869.5,
+      "Kelembapan": 75.22,
+      "Suhu rata-rata": 24.49
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 1995,
+      "Produksi": 1829192.0,
+      "Luas Panen": 400627.0,
+      "Curah hujan": 5022.0,
+      "Kelembapan": 87.68,
+      "Suhu rata-rata": 24.82
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 1996,
+      "Produksi": 1971180.0,
+      "Luas Panen": 430343.0,
+      "Curah hujan": 3866.0,
+      "Kelembapan": 87.29,
+      "Suhu rata-rata": 24.52
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 1997,
+      "Produksi": 1787719.0,
+      "Luas Panen": 395728.0,
+      "Curah hujan": 2945.1,
+      "Kelembapan": 87.97,
+      "Suhu rata-rata": 24.69
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 1998,
+      "Produksi": 1807622.0,
+      "Luas Panen": 412810.0,
+      "Curah hujan": 5522.0,
+      "Kelembapan": 87.39,
+      "Suhu rata-rata": 25.04
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 1999,
+      "Produksi": 1897678.0,
+      "Luas Panen": 432254.0,
+      "Curah hujan": 4327.5,
+      "Kelembapan": 80.89,
+      "Suhu rata-rata": 22.48
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2000,
+      "Produksi": 1759059.0,
+      "Luas Panen": 396919.0,
+      "Curah hujan": 3040.6,
+      "Kelembapan": 86.01,
+      "Suhu rata-rata": 25.86
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2001,
+      "Produksi": 1668955.0,
+      "Luas Panen": 376710.0,
+      "Curah hujan": 2811.0,
+      "Kelembapan": 71.08,
+      "Suhu rata-rata": 28.17
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2002,
+      "Produksi": 1875834.0,
+      "Luas Panen": 424253.0,
+      "Curah hujan": 4241.2,
+      "Kelembapan": 71.28,
+      "Suhu rata-rata": 28.19
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2003,
+      "Produksi": 1823739.0,
+      "Luas Panen": 411860.0,
+      "Curah hujan": 4927.2,
+      "Kelembapan": 71.91,
+      "Suhu rata-rata": 29.17
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2004,
+      "Produksi": 1875188.0,
+      "Luas Panen": 422582.0,
+      "Curah hujan": 4584.2,
+      "Kelembapan": 78.5,
+      "Suhu rata-rata": 29.02
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2005,
+      "Produksi": 1907390.0,
+      "Luas Panen": 426950.0,
+      "Curah hujan": 1533.6,
+      "Kelembapan": 78.0,
+      "Suhu rata-rata": 25.9
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2006,
+      "Produksi": 1889489.0,
+      "Luas Panen": 417846.0,
+      "Curah hujan": 776.0,
+      "Kelembapan": 79.0,
+      "Suhu rata-rata": 26.05
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2007,
+      "Produksi": 1938120.0,
+      "Luas Panen": 423655.0,
+      "Curah hujan": 4329.0,
+      "Kelembapan": 85.3,
+      "Suhu rata-rata": 25.7
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2008,
+      "Produksi": 1965634.0,
+      "Luas Panen": 421902.0,
+      "Curah hujan": 2552.5,
+      "Kelembapan": 86.2,
+      "Suhu rata-rata": 25.4
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2009,
+      "Produksi": 2105790.0,
+      "Luas Panen": 439542.0,
+      "Curah hujan": 4691.0,
+      "Kelembapan": 86.2,
+      "Suhu rata-rata": 25.5
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2010,
+      "Produksi": 2211248.0,
+      "Luas Panen": 460497.0,
+      "Curah hujan": 5228.0,
+      "Kelembapan": 87.2,
+      "Suhu rata-rata": 25.8
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2011,
+      "Produksi": 2279602.0,
+      "Luas Panen": 461709.0,
+      "Curah hujan": 4959.5,
+      "Kelembapan": 54.2,
+      "Suhu rata-rata": 26.0
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2012,
+      "Produksi": 2368390.0,
+      "Luas Panen": 476422.0,
+      "Curah hujan": 4339.0,
+      "Kelembapan": 87.0,
+      "Suhu rata-rata": 25.2
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2013,
+      "Produksi": 2430384.0,
+      "Luas Panen": 487820.0,
+      "Curah hujan": 4627.9,
+      "Kelembapan": 86.91,
+      "Suhu rata-rata": 25.1
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2014,
+      "Produksi": 2519020.0,
+      "Luas Panen": 503198.0,
+      "Curah hujan": 2838.4,
+      "Kelembapan": 85.35,
+      "Suhu rata-rata": 25.7
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2015,
+      "Produksi": 2550609.0,
+      "Luas Panen": 507545.0,
+      "Curah hujan": 3548.0,
+      "Kelembapan": 84.0,
+      "Suhu rata-rata": 26.5
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2016,
+      "Produksi": 2487929.0,
+      "Luas Panen": 222482.0,
+      "Curah hujan": 4205.2,
+      "Kelembapan": 76.49,
+      "Suhu rata-rata": 23.26
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2017,
+      "Produksi": 2810425.0,
+      "Luas Panen": 222021.0,
+      "Curah hujan": 4553.0,
+      "Kelembapan": 75.11,
+      "Suhu rata-rata": 22.19
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2018,
+      "Produksi": 1483076.48,
+      "Luas Panen": 313050.82,
+      "Curah hujan": 327.33,
+      "Kelembapan": 82.71,
+      "Suhu rata-rata": 26.91
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2019,
+      "Produksi": 1482996.01,
+      "Luas Panen": 311671.23,
+      "Curah hujan": 4757.5,
+      "Kelembapan": 87.73,
+      "Suhu rata-rata": 25.61
+    },
+    {
+      "Provinsi": "Sumatera Barat",
+      "Tahun": 2020,
+      "Produksi": 1450839.74,
+      "Luas Panen": 295664.47,
+      "Curah hujan": 4072.7,
+      "Kelembapan": 85.22,
+      "Suhu rata-rata": 26.26
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 1993,
+      "Produksi": 436297.0,
+      "Luas Panen": 146133.0,
+      "Curah hujan": 2738.4,
+      "Kelembapan": 86.37,
+      "Suhu rata-rata": 26.0
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 1994,
+      "Produksi": 445361.0,
+      "Luas Panen": 146177.0,
+      "Curah hujan": 1991.3,
+      "Kelembapan": 84.9,
+      "Suhu rata-rata": 26.1
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 1995,
+      "Produksi": 458756.0,
+      "Luas Panen": 152204.0,
+      "Curah hujan": 3099.9,
+      "Kelembapan": 85.02,
+      "Suhu rata-rata": 26.17
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 1996,
+      "Produksi": 461905.0,
+      "Luas Panen": 150354.0,
+      "Curah hujan": 2259.5,
+      "Kelembapan": 84.26,
+      "Suhu rata-rata": 25.94
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 1997,
+      "Produksi": 416135.0,
+      "Luas Panen": 137953.0,
+      "Curah hujan": 1510.4,
+      "Kelembapan": 83.82,
+      "Suhu rata-rata": 26.26
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 1998,
+      "Produksi": 370124.0,
+      "Luas Panen": 126280.0,
+      "Curah hujan": 2233.0,
+      "Kelembapan": 84.26,
+      "Suhu rata-rata": 26.73
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 1999,
+      "Produksi": 461630.0,
+      "Luas Panen": 155683.0,
+      "Curah hujan": 2045.3,
+      "Kelembapan": 84.59,
+      "Suhu rata-rata": 26.08
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2000,
+      "Produksi": 431351.0,
+      "Luas Panen": 141640.0,
+      "Curah hujan": 2478.2,
+      "Kelembapan": 84.6,
+      "Suhu rata-rata": 25.98
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2001,
+      "Produksi": 413391.0,
+      "Luas Panen": 132507.0,
+      "Curah hujan": 2441.7,
+      "Kelembapan": 70.79,
+      "Suhu rata-rata": 29.05
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2002,
+      "Produksi": 396644.0,
+      "Luas Panen": 129025.0,
+      "Curah hujan": 3123.8,
+      "Kelembapan": 71.73,
+      "Suhu rata-rata": 28.2
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2003,
+      "Produksi": 414237.0,
+      "Luas Panen": 132887.0,
+      "Curah hujan": 3822.8,
+      "Kelembapan": 72.92,
+      "Suhu rata-rata": 29.64
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2004,
+      "Produksi": 454186.0,
+      "Luas Panen": 145239.0,
+      "Curah hujan": 2540.1,
+      "Kelembapan": 83.7,
+      "Suhu rata-rata": 29.85
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2005,
+      "Produksi": 424095.0,
+      "Luas Panen": 134418.0,
+      "Curah hujan": 1996.3,
+      "Kelembapan": 83.93,
+      "Suhu rata-rata": 26.58
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2006,
+      "Produksi": 42938.0,
+      "Luas Panen": 136177.0,
+      "Curah hujan": 537.6,
+      "Kelembapan": 79.6,
+      "Suhu rata-rata": 27.7
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2007,
+      "Produksi": 490087.0,
+      "Luas Panen": 147167.0,
+      "Curah hujan": 3216.3,
+      "Kelembapan": 85.3,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2008,
+      "Produksi": 494260.0,
+      "Luas Panen": 147796.0,
+      "Curah hujan": 3026.2,
+      "Kelembapan": 80.2,
+      "Suhu rata-rata": 27.4
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2009,
+      "Produksi": 531429.0,
+      "Luas Panen": 149423.0,
+      "Curah hujan": 3390.0,
+      "Kelembapan": 76.2,
+      "Suhu rata-rata": 27.7
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2010,
+      "Produksi": 574864.0,
+      "Luas Panen": 156088.0,
+      "Curah hujan": 3390.0,
+      "Kelembapan": 76.2,
+      "Suhu rata-rata": 27.7
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2011,
+      "Produksi": 535788.0,
+      "Luas Panen": 145242.0,
+      "Curah hujan": 2405.0,
+      "Kelembapan": 74.5,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2012,
+      "Produksi": 512152.0,
+      "Luas Panen": 144015.0,
+      "Curah hujan": 2636.0,
+      "Kelembapan": 76.1,
+      "Suhu rata-rata": 27.3
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2013,
+      "Produksi": 434144.0,
+      "Luas Panen": 118518.0,
+      "Curah hujan": 2628.0,
+      "Kelembapan": 76.0,
+      "Suhu rata-rata": 26.0
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2014,
+      "Produksi": 385475.0,
+      "Luas Panen": 106037.0,
+      "Curah hujan": 2343.0,
+      "Kelembapan": 78.1,
+      "Suhu rata-rata": 27.2
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2015,
+      "Produksi": 393917.0,
+      "Luas Panen": 107546.0,
+      "Curah hujan": 2048.3,
+      "Kelembapan": 80.5,
+      "Suhu rata-rata": 27.2
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2016,
+      "Produksi": 325826.0,
+      "Luas Panen": 72151.0,
+      "Curah hujan": 2105.6,
+      "Kelembapan": 83.72,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2017,
+      "Produksi": 337421.0,
+      "Luas Panen": 70016.0,
+      "Curah hujan": 2982.9,
+      "Kelembapan": 84.76,
+      "Suhu rata-rata": 26.7
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2018,
+      "Produksi": 266375.53,
+      "Luas Panen": 71448.08,
+      "Curah hujan": 1837.1,
+      "Kelembapan": 71.22,
+      "Suhu rata-rata": 25.0
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2019,
+      "Produksi": 230873.97,
+      "Luas Panen": 63142.04,
+      "Curah hujan": 1608.3,
+      "Kelembapan": 83.77,
+      "Suhu rata-rata": 26.91
+    },
+    {
+      "Provinsi": "Riau",
+      "Tahun": 2020,
+      "Produksi": 269344.05,
+      "Luas Panen": 64733.13,
+      "Curah hujan": 2584.9,
+      "Kelembapan": 81.8,
+      "Suhu rata-rata": 25.93
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 1993,
+      "Produksi": 607529.0,
+      "Luas Panen": 199431.0,
+      "Curah hujan": 1954.0,
+      "Kelembapan": 83.81,
+      "Suhu rata-rata": 26.29
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 1994,
+      "Produksi": 564722.0,
+      "Luas Panen": 184029.0,
+      "Curah hujan": 1824.0,
+      "Kelembapan": 81.25,
+      "Suhu rata-rata": 25.51
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 1995,
+      "Produksi": 593502.0,
+      "Luas Panen": 193666.0,
+      "Curah hujan": 2290.1,
+      "Kelembapan": 83.96,
+      "Suhu rata-rata": 26.22
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 1996,
+      "Produksi": 657650.0,
+      "Luas Panen": 215975.0,
+      "Curah hujan": 2309.1,
+      "Kelembapan": 83.6,
+      "Suhu rata-rata": 26.0
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 1997,
+      "Produksi": 572269.0,
+      "Luas Panen": 190608.0,
+      "Curah hujan": 1030.1,
+      "Kelembapan": 80.64,
+      "Suhu rata-rata": 26.5
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 1998,
+      "Produksi": 550277.0,
+      "Luas Panen": 178766.0,
+      "Curah hujan": 2383.8,
+      "Kelembapan": 83.47,
+      "Suhu rata-rata": 26.78
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 1999,
+      "Produksi": 553641.0,
+      "Luas Panen": 178307.0,
+      "Curah hujan": 2429.3,
+      "Kelembapan": 83.25,
+      "Suhu rata-rata": 26.34
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2000,
+      "Produksi": 536779.0,
+      "Luas Panen": 171395.0,
+      "Curah hujan": 840.3,
+      "Kelembapan": 84.85,
+      "Suhu rata-rata": 27.76
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2001,
+      "Produksi": 556564.0,
+      "Luas Panen": 164826.0,
+      "Curah hujan": 2515.2,
+      "Kelembapan": 72.4,
+      "Suhu rata-rata": 28.12
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2002,
+      "Produksi": 561007.0,
+      "Luas Panen": 165729.0,
+      "Curah hujan": 2044.5,
+      "Kelembapan": 70.77,
+      "Suhu rata-rata": 28.82
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2003,
+      "Produksi": 578346.0,
+      "Luas Panen": 159463.0,
+      "Curah hujan": 2508.1,
+      "Kelembapan": 71.28,
+      "Suhu rata-rata": 29.39
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2004,
+      "Produksi": 579404.0,
+      "Luas Panen": 156803.0,
+      "Curah hujan": 2561.0,
+      "Kelembapan": 82.74,
+      "Suhu rata-rata": 28.95
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2005,
+      "Produksi": 579635.0,
+      "Luas Panen": 154941.0,
+      "Curah hujan": 1015.7,
+      "Kelembapan": 84.8,
+      "Suhu rata-rata": 26.8
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2006,
+      "Produksi": 544597.0,
+      "Luas Panen": 140613.0,
+      "Curah hujan": 424.7,
+      "Kelembapan": 85.0,
+      "Suhu rata-rata": 26.77
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2007,
+      "Produksi": 58663.0,
+      "Luas Panen": 149888.0,
+      "Curah hujan": 2394.0,
+      "Kelembapan": 86.0,
+      "Suhu rata-rata": 26.6
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2008,
+      "Produksi": 581704.0,
+      "Luas Panen": 143034.0,
+      "Curah hujan": 2230.0,
+      "Kelembapan": 83.7,
+      "Suhu rata-rata": 26.5
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2009,
+      "Produksi": 644947.0,
+      "Luas Panen": 155802.0,
+      "Curah hujan": 2299.0,
+      "Kelembapan": 83.8,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2010,
+      "Produksi": 628828.0,
+      "Luas Panen": 153897.0,
+      "Curah hujan": 3207.0,
+      "Kelembapan": 84.6,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2011,
+      "Produksi": 646641.0,
+      "Luas Panen": 157441.0,
+      "Curah hujan": 2295.0,
+      "Kelembapan": 82.5,
+      "Suhu rata-rata": 26.9
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2012,
+      "Produksi": 625164.0,
+      "Luas Panen": 149369.0,
+      "Curah hujan": 1874.0,
+      "Kelembapan": 81.4,
+      "Suhu rata-rata": 26.7
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2013,
+      "Produksi": 664535.0,
+      "Luas Panen": 153243.0,
+      "Curah hujan": 2093.0,
+      "Kelembapan": 83.42,
+      "Suhu rata-rata": 26.8
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2014,
+      "Produksi": 664720.0,
+      "Luas Panen": 145990.0,
+      "Curah hujan": 1781.0,
+      "Kelembapan": 82.8,
+      "Suhu rata-rata": 27.2
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2015,
+      "Produksi": 541486.0,
+      "Luas Panen": 122214.0,
+      "Curah hujan": 1694.9,
+      "Kelembapan": 82.1,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2016,
+      "Produksi": 642095.0,
+      "Luas Panen": 96588.0,
+      "Curah hujan": 1502.4,
+      "Kelembapan": 83.84,
+      "Suhu rata-rata": 26.84
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2017,
+      "Produksi": 678127.0,
+      "Luas Panen": 97690.0,
+      "Curah hujan": 2193.2,
+      "Kelembapan": 83.69,
+      "Suhu rata-rata": 26.62
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2018,
+      "Produksi": 383045.74,
+      "Luas Panen": 86202.68,
+      "Curah hujan": 2182.3,
+      "Kelembapan": 82.23,
+      "Suhu rata-rata": 26.62
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2019,
+      "Produksi": 309932.68,
+      "Luas Panen": 69536.06,
+      "Curah hujan": 1773.4,
+      "Kelembapan": 81.44,
+      "Suhu rata-rata": 26.94
+    },
+    {
+      "Provinsi": "Jambi",
+      "Tahun": 2020,
+      "Produksi": 374376.27,
+      "Luas Panen": 84772.93,
+      "Curah hujan": 2303.8,
+      "Kelembapan": 78.24,
+      "Suhu rata-rata": 25.85
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 1993,
+      "Produksi": 1409559.0,
+      "Luas Panen": 439895.0,
+      "Curah hujan": 2815.0,
+      "Kelembapan": 82.78,
+      "Suhu rata-rata": 26.38
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 1994,
+      "Produksi": 1347611.0,
+      "Luas Panen": 422109.0,
+      "Curah hujan": 1800.0,
+      "Kelembapan": 79.89,
+      "Suhu rata-rata": 26.53
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 1995,
+      "Produksi": 1557944.0,
+      "Luas Panen": 492448.0,
+      "Curah hujan": 2800.0,
+      "Kelembapan": 82.71,
+      "Suhu rata-rata": 26.54
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 1996,
+      "Produksi": 1666591.0,
+      "Luas Panen": 495958.0,
+      "Curah hujan": 2614.0,
+      "Kelembapan": 82.45,
+      "Suhu rata-rata": 26.34
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 1997,
+      "Produksi": 1577398.0,
+      "Luas Panen": 469670.0,
+      "Curah hujan": 1558.3,
+      "Kelembapan": 78.47,
+      "Suhu rata-rata": 26.75
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 1998,
+      "Produksi": 1931505.0,
+      "Luas Panen": 621829.0,
+      "Curah hujan": 2539.3,
+      "Kelembapan": 82.58,
+      "Suhu rata-rata": 26.19
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 1999,
+      "Produksi": 1789961.0,
+      "Luas Panen": 530692.0,
+      "Curah hujan": 2704.7,
+      "Kelembapan": 81.01,
+      "Suhu rata-rata": 25.67
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2000,
+      "Produksi": 1863643.0,
+      "Luas Panen": 555427.0,
+      "Curah hujan": 2632.5,
+      "Kelembapan": 83.26,
+      "Suhu rata-rata": 25.32
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2001,
+      "Produksi": 1723433.0,
+      "Luas Panen": 511928.0,
+      "Curah hujan": 2837.5,
+      "Kelembapan": 72.06,
+      "Suhu rata-rata": 28.83
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2002,
+      "Produksi": 1899849.0,
+      "Luas Panen": 561724.0,
+      "Curah hujan": 2368.2,
+      "Kelembapan": 70.36,
+      "Suhu rata-rata": 28.23
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2003,
+      "Produksi": 1977345.0,
+      "Luas Panen": 570010.0,
+      "Curah hujan": 2674.0,
+      "Kelembapan": 69.59,
+      "Suhu rata-rata": 29.64
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2004,
+      "Produksi": 2260794.0,
+      "Luas Panen": 625013.0,
+      "Curah hujan": 2182.6,
+      "Kelembapan": 80.96,
+      "Suhu rata-rata": 28.7
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2005,
+      "Produksi": 2320110.0,
+      "Luas Panen": 626849.0,
+      "Curah hujan": 1356.9,
+      "Kelembapan": 82.5,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2006,
+      "Produksi": 2456251.0,
+      "Luas Panen": 646927.0,
+      "Curah hujan": 1442.0,
+      "Kelembapan": 80.0,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2007,
+      "Produksi": 2753044.0,
+      "Luas Panen": 691467.0,
+      "Curah hujan": 2364.7,
+      "Kelembapan": 83.5,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2008,
+      "Produksi": 2971286.0,
+      "Luas Panen": 718797.0,
+      "Curah hujan": 2685.7,
+      "Kelembapan": 84.8,
+      "Suhu rata-rata": 26.9
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2009,
+      "Produksi": 3125236.0,
+      "Luas Panen": 746465.0,
+      "Curah hujan": 2389.0,
+      "Kelembapan": 82.3,
+      "Suhu rata-rata": 27.4
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2010,
+      "Produksi": 3272451.0,
+      "Luas Panen": 769478.0,
+      "Curah hujan": 3396.0,
+      "Kelembapan": 85.25,
+      "Suhu rata-rata": 27.08
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2011,
+      "Produksi": 3384670.0,
+      "Luas Panen": 784820.0,
+      "Curah hujan": 2593.0,
+      "Kelembapan": 84.8,
+      "Suhu rata-rata": 27.3
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2012,
+      "Produksi": 3295247.0,
+      "Luas Panen": 769725.0,
+      "Curah hujan": 3083.0,
+      "Kelembapan": 83.0,
+      "Suhu rata-rata": 27.4
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2013,
+      "Produksi": 3676723.0,
+      "Luas Panen": 800036.0,
+      "Curah hujan": 3409.0,
+      "Kelembapan": 84.0,
+      "Suhu rata-rata": 27.3
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2014,
+      "Produksi": 3670435.0,
+      "Luas Panen": 810900.0,
+      "Curah hujan": 1668.3,
+      "Kelembapan": 81.0,
+      "Suhu rata-rata": 26.0
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2015,
+      "Produksi": 4247922.0,
+      "Luas Panen": 872737.0,
+      "Curah hujan": 1947.2,
+      "Kelembapan": 79.5,
+      "Suhu rata-rata": 27.7
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2016,
+      "Produksi": 4881089.0,
+      "Luas Panen": 615184.0,
+      "Curah hujan": 3477.9,
+      "Kelembapan": 82.22,
+      "Suhu rata-rata": 27.31
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2017,
+      "Produksi": 4807430.0,
+      "Luas Panen": 621903.0,
+      "Curah hujan": 2489.5,
+      "Kelembapan": 81.08,
+      "Suhu rata-rata": 26.75
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2018,
+      "Produksi": 2994191.84,
+      "Luas Panen": 581574.61,
+      "Curah hujan": 2252.4,
+      "Kelembapan": 77.66,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2019,
+      "Produksi": 2603396.24,
+      "Luas Panen": 539316.52,
+      "Curah hujan": 1655.5,
+      "Kelembapan": 85.13,
+      "Suhu rata-rata": 27.6
+    },
+    {
+      "Provinsi": "Sumatera Selatan",
+      "Tahun": 2020,
+      "Produksi": 2696877.46,
+      "Luas Panen": 551320.76,
+      "Curah hujan": 2300.2,
+      "Kelembapan": 81.1,
+      "Suhu rata-rata": 26.14
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 1993,
+      "Produksi": 356709.0,
+      "Luas Panen": 109807.0,
+      "Curah hujan": 4150.0,
+      "Kelembapan": 85.5,
+      "Suhu rata-rata": 25.95
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 1994,
+      "Produksi": 334232.0,
+      "Luas Panen": 104747.0,
+      "Curah hujan": 2043.0,
+      "Kelembapan": 85.32,
+      "Suhu rata-rata": 25.68
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 1995,
+      "Produksi": 377337.0,
+      "Luas Panen": 115914.0,
+      "Curah hujan": 4478.0,
+      "Kelembapan": 85.49,
+      "Suhu rata-rata": 26.12
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 1996,
+      "Produksi": 396977.0,
+      "Luas Panen": 121929.0,
+      "Curah hujan": 3931.0,
+      "Kelembapan": 85.96,
+      "Suhu rata-rata": 25.66
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 1997,
+      "Produksi": 382123.0,
+      "Luas Panen": 113915.0,
+      "Curah hujan": 1167.0,
+      "Kelembapan": 84.0,
+      "Suhu rata-rata": 25.84
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 1998,
+      "Produksi": 375533.0,
+      "Luas Panen": 111158.0,
+      "Curah hujan": 4114.0,
+      "Kelembapan": 85.34,
+      "Suhu rata-rata": 26.4
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 1999,
+      "Produksi": 381577.0,
+      "Luas Panen": 114788.0,
+      "Curah hujan": 3084.0,
+      "Kelembapan": 84.72,
+      "Suhu rata-rata": 25.81
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2000,
+      "Produksi": 362979.0,
+      "Luas Panen": 108751.0,
+      "Curah hujan": 3254.0,
+      "Kelembapan": 84.73,
+      "Suhu rata-rata": 24.22
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2001,
+      "Produksi": 376973.0,
+      "Luas Panen": 105212.0,
+      "Curah hujan": 3010.0,
+      "Kelembapan": 70.15,
+      "Suhu rata-rata": 26.8
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2002,
+      "Produksi": 379818.0,
+      "Luas Panen": 109519.0,
+      "Curah hujan": 3076.0,
+      "Kelembapan": 67.98,
+      "Suhu rata-rata": 28.5
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2003,
+      "Produksi": 413375.0,
+      "Luas Panen": 110550.0,
+      "Curah hujan": 3030.0,
+      "Kelembapan": 70.3,
+      "Suhu rata-rata": 29.5
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2004,
+      "Produksi": 414741.0,
+      "Luas Panen": 110929.0,
+      "Curah hujan": 3277.0,
+      "Kelembapan": 84.28,
+      "Suhu rata-rata": 29.7
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2005,
+      "Produksi": 441276.0,
+      "Luas Panen": 116818.0,
+      "Curah hujan": 3375.2,
+      "Kelembapan": 84.7,
+      "Suhu rata-rata": 25.7
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2006,
+      "Produksi": 378377.0,
+      "Luas Panen": 100991.0,
+      "Curah hujan": 2313.8,
+      "Kelembapan": 83.3,
+      "Suhu rata-rata": 26.1
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2007,
+      "Produksi": 470469.0,
+      "Luas Panen": 123853.0,
+      "Curah hujan": 3150.0,
+      "Kelembapan": 84.2,
+      "Suhu rata-rata": 26.4
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2008,
+      "Produksi": 484900.0,
+      "Luas Panen": 127506.0,
+      "Curah hujan": 3396.0,
+      "Kelembapan": 84.2,
+      "Suhu rata-rata": 26.3
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2009,
+      "Produksi": 510160.0,
+      "Luas Panen": 132975.0,
+      "Curah hujan": 3850.0,
+      "Kelembapan": 84.1,
+      "Suhu rata-rata": 26.5
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2010,
+      "Produksi": 516869.0,
+      "Luas Panen": 133629.0,
+      "Curah hujan": 3822.0,
+      "Kelembapan": 84.0,
+      "Suhu rata-rata": 26.8
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2011,
+      "Produksi": 502552.0,
+      "Luas Panen": 127934.0,
+      "Curah hujan": 2465.7,
+      "Kelembapan": 82.52,
+      "Suhu rata-rata": 26.35
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2012,
+      "Produksi": 581910.0,
+      "Luas Panen": 144448.0,
+      "Curah hujan": 2545.0,
+      "Kelembapan": 82.0,
+      "Suhu rata-rata": 26.9
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2013,
+      "Produksi": 622832.0,
+      "Luas Panen": 147680.0,
+      "Curah hujan": 3980.9,
+      "Kelembapan": 83.93,
+      "Suhu rata-rata": 26.7
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2014,
+      "Produksi": 593194.0,
+      "Luas Panen": 147572.0,
+      "Curah hujan": 3323.0,
+      "Kelembapan": 83.7,
+      "Suhu rata-rata": 26.9
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2015,
+      "Produksi": 578654.0,
+      "Luas Panen": 128833.0,
+      "Curah hujan": 2668.9,
+      "Kelembapan": 83.2,
+      "Suhu rata-rata": 27.0
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2016,
+      "Produksi": 629224.0,
+      "Luas Panen": 83449.0,
+      "Curah hujan": 3350.1,
+      "Kelembapan": 83.38,
+      "Suhu rata-rata": 26.77
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2017,
+      "Produksi": 714017.0,
+      "Luas Panen": 82429.0,
+      "Curah hujan": 3949.8,
+      "Kelembapan": 84.2,
+      "Suhu rata-rata": 26.52
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2018,
+      "Produksi": 288810.52,
+      "Luas Panen": 65891.16,
+      "Curah hujan": 3649.9,
+      "Kelembapan": 83.79,
+      "Suhu rata-rata": 26.64
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2019,
+      "Produksi": 296472.07,
+      "Luas Panen": 64406.86,
+      "Curah hujan": 1786.2,
+      "Kelembapan": 83.26,
+      "Suhu rata-rata": 26.56
+    },
+    {
+      "Provinsi": "Bengkulu",
+      "Tahun": 2020,
+      "Produksi": 296925.16,
+      "Luas Panen": 64137.28,
+      "Curah hujan": 4144.0,
+      "Kelembapan": 80.18,
+      "Suhu rata-rata": 25.84
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 1993,
+      "Produksi": 1646900.0,
+      "Luas Panen": 433078.0,
+      "Curah hujan": 2306.7,
+      "Kelembapan": 84.82,
+      "Suhu rata-rata": 26.41
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 1994,
+      "Produksi": 1615751.0,
+      "Luas Panen": 425940.0,
+      "Curah hujan": 2034.2,
+      "Kelembapan": 77.51,
+      "Suhu rata-rata": 25.73
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 1995,
+      "Produksi": 1943709.0,
+      "Luas Panen": 514363.0,
+      "Curah hujan": 3039.4,
+      "Kelembapan": 82.81,
+      "Suhu rata-rata": 26.43
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 1996,
+      "Produksi": 1971740.0,
+      "Luas Panen": 515192.0,
+      "Curah hujan": 1934.9,
+      "Kelembapan": 82.61,
+      "Suhu rata-rata": 26.27
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 1997,
+      "Produksi": 1753656.0,
+      "Luas Panen": 454087.0,
+      "Curah hujan": 1253.3,
+      "Kelembapan": 78.46,
+      "Suhu rata-rata": 26.68
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 1998,
+      "Produksi": 1975700.0,
+      "Luas Panen": 521575.0,
+      "Curah hujan": 2584.9,
+      "Kelembapan": 84.07,
+      "Suhu rata-rata": 26.95
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 1999,
+      "Produksi": 1801422.0,
+      "Luas Panen": 476899.0,
+      "Curah hujan": 2364.7,
+      "Kelembapan": 83.46,
+      "Suhu rata-rata": 26.24
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2000,
+      "Produksi": 1946406.0,
+      "Luas Panen": 496879.0,
+      "Curah hujan": 1488.5,
+      "Kelembapan": 82.86,
+      "Suhu rata-rata": 28.2
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2001,
+      "Produksi": 1992726.0,
+      "Luas Panen": 501119.0,
+      "Curah hujan": 2013.1,
+      "Kelembapan": 77.83,
+      "Suhu rata-rata": 26.71
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2002,
+      "Produksi": 1951109.0,
+      "Luas Panen": 475461.0,
+      "Curah hujan": 2143.5,
+      "Kelembapan": 75.84,
+      "Suhu rata-rata": 27.5
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2003,
+      "Produksi": 1966293.0,
+      "Luas Panen": 472635.0,
+      "Curah hujan": 1682.2,
+      "Kelembapan": 68.71,
+      "Suhu rata-rata": 29.67
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2004,
+      "Produksi": 2091996.0,
+      "Luas Panen": 495519.0,
+      "Curah hujan": 2042.9,
+      "Kelembapan": 81.47,
+      "Suhu rata-rata": 29.66
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2005,
+      "Produksi": 2124144.0,
+      "Luas Panen": 496538.0,
+      "Curah hujan": 1612.8,
+      "Kelembapan": 79.6,
+      "Suhu rata-rata": 26.59
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2006,
+      "Produksi": 2129914.0,
+      "Luas Panen": 494102.0,
+      "Curah hujan": 560.3,
+      "Kelembapan": 74.6,
+      "Suhu rata-rata": 26.18
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2007,
+      "Produksi": 2308404.0,
+      "Luas Panen": 524955.0,
+      "Curah hujan": 1941.4,
+      "Kelembapan": 75.9,
+      "Suhu rata-rata": 27.6
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2008,
+      "Produksi": 2341075.0,
+      "Luas Panen": 506547.0,
+      "Curah hujan": 1940.1,
+      "Kelembapan": 79.0,
+      "Suhu rata-rata": 26.4
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2009,
+      "Produksi": 2673844.0,
+      "Luas Panen": 570417.0,
+      "Curah hujan": 1789.0,
+      "Kelembapan": 79.1,
+      "Suhu rata-rata": 26.7
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2010,
+      "Produksi": 2807676.0,
+      "Luas Panen": 590608.0,
+      "Curah hujan": 2710.0,
+      "Kelembapan": 82.3,
+      "Suhu rata-rata": 26.7
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2011,
+      "Produksi": 2940795.0,
+      "Luas Panen": 606973.0,
+      "Curah hujan": 1568.0,
+      "Kelembapan": 77.8,
+      "Suhu rata-rata": 26.8
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2012,
+      "Produksi": 3101455.0,
+      "Luas Panen": 641876.0,
+      "Curah hujan": 1685.0,
+      "Kelembapan": 79.2,
+      "Suhu rata-rata": 26.8
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2013,
+      "Produksi": 3207002.0,
+      "Luas Panen": 638090.0,
+      "Curah hujan": 2456.7,
+      "Kelembapan": 81.0,
+      "Suhu rata-rata": 26.7
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2014,
+      "Produksi": 3320064.0,
+      "Luas Panen": 648731.0,
+      "Curah hujan": 1682.5,
+      "Kelembapan": 79.9,
+      "Suhu rata-rata": 25.8
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2015,
+      "Produksi": 3641895.0,
+      "Luas Panen": 707266.0,
+      "Curah hujan": 1628.1,
+      "Kelembapan": 78.9,
+      "Suhu rata-rata": 27.1
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2016,
+      "Produksi": 3831923.0,
+      "Luas Panen": 390799.0,
+      "Curah hujan": 2317.6,
+      "Kelembapan": 79.4,
+      "Suhu rata-rata": 26.45
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2017,
+      "Produksi": 4090654.0,
+      "Luas Panen": 396559.0,
+      "Curah hujan": 1825.1,
+      "Kelembapan": 77.04,
+      "Suhu rata-rata": 26.36
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2018,
+      "Produksi": 2488641.91,
+      "Luas Panen": 511940.93,
+      "Curah hujan": 1385.8,
+      "Kelembapan": 76.05,
+      "Suhu rata-rata": 25.5
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2019,
+      "Produksi": 2164089.33,
+      "Luas Panen": 464103.42,
+      "Curah hujan": 1706.4,
+      "Kelembapan": 78.03,
+      "Suhu rata-rata": 27.23
+    },
+    {
+      "Provinsi": "Lampung",
+      "Tahun": 2020,
+      "Produksi": 2604913.29,
+      "Luas Panen": 545149.05,
+      "Curah hujan": 2211.3,
+      "Kelembapan": 75.8,
+      "Suhu rata-rata": 24.58
+    }
+  ],
+  "descriptive": {
+    "Produksi": {
+      "mean": 1679700.89,
+      "median": 1667773.0,
+      "modus": 42938.0,
+      "range": 4838151.0,
+      "variance": 1348820679102.28,
+      "std": 1161387.39,
+      "iqr": 1887993.75,
+      "min": 42938.0,
+      "q1": 548857.0,
+      "q2": 1667773.0,
+      "q3": 2436850.75,
+      "max": 4881089.0,
+      "count": 224.0
+    },
+    "Luas Panen": {
+      "mean": 374349.97,
+      "median": 373551.5,
+      "modus": 63142.04,
+      "range": 809594.96,
+      "variance": 54173103406.53,
+      "std": 232751.16,
+      "iqr": 367650.75,
+      "min": 63142.04,
+      "q1": 146919.5,
+      "q2": 373551.5,
+      "q3": 514570.25,
+      "max": 872737.0,
+      "count": 224.0
+    },
+    "Curah hujan": {
+      "mean": 2452.49,
+      "median": 2315.7,
+      "modus": 2364.7,
+      "range": 5299.5,
+      "variance": 1064967.5,
+      "std": 1031.97,
+      "iqr": 1336.17,
+      "min": 222.5,
+      "q1": 1703.52,
+      "q2": 2315.7,
+      "q3": 3039.7,
+      "max": 5522.0,
+      "count": 224.0
+    },
+    "Kelembapan": {
+      "mean": 80.95,
+      "median": 82.38,
+      "modus": 84.0,
+      "range": 36.4,
+      "variance": 23.8,
+      "std": 4.88,
+      "iqr": 5.03,
+      "min": 54.2,
+      "q1": 78.97,
+      "q2": 82.38,
+      "q3": 84.0,
+      "max": 90.6,
+      "count": 224.0
+    },
+    "Suhu rata-rata": {
+      "mean": 26.8,
+      "median": 26.73,
+      "modus": 27.1,
+      "range": 7.66,
+      "variance": 1.43,
+      "std": 1.2,
+      "iqr": 1.02,
+      "min": 22.19,
+      "q1": 26.18,
+      "q2": 26.73,
+      "q3": 27.2,
+      "max": 29.85,
+      "count": 224.0
+    }
+  },
+  "shapiro": {
+    "Produksi": {
+      "W": 0.9200939331381328,
+      "p": 1.2332610774194887e-09,
+      "normal": false
+    },
+    "Luas Panen": {
+      "W": 0.9192115818586287,
+      "p": 1.055220748053943e-09,
+      "normal": false
+    },
+    "Curah hujan": {
+      "W": 0.9669134584209256,
+      "p": 4.3661324274158314e-05,
+      "normal": false
+    },
+    "Kelembapan": {
+      "W": 0.8875166976203924,
+      "p": 7.145093110003197e-12,
+      "normal": false
+    },
+    "Suhu rata-rata": {
+      "W": 0.9424090378606618,
+      "p": 9.654989392987425e-08,
+      "normal": false
+    }
+  },
+  "spearman": {
+    "H1": {
+      "var": "Luas Panen",
+      "h0": "Luas panen TIDAK berhubungan dengan produksi padi",
+      "h1": "Luas panen BERHUBUNGAN dengan produksi padi",
+      "rho": 0.9200683322656418,
+      "p": 2.5944821978848792e-92,
+      "kekuatan": "Sangat Kuat",
+      "tolak_h0": true
+    },
+    "H2": {
+      "var": "Curah hujan",
+      "h0": "Curah hujan TIDAK berhubungan dengan produksi padi",
+      "h1": "Curah hujan BERHUBUNGAN dengan produksi padi",
+      "rho": -0.06735539969617303,
+      "p": 0.3155793947986595,
+      "kekuatan": "Sangat Lemah",
+      "tolak_h0": false
+    },
+    "H3": {
+      "var": "Kelembapan",
+      "h0": "Kelembapan TIDAK berhubungan dengan produksi padi",
+      "h1": "Kelembapan BERHUBUNGAN dengan produksi padi",
+      "rho": -0.1363501686052151,
+      "p": 0.04146831211750412,
+      "kekuatan": "Sangat Lemah",
+      "tolak_h0": true
+    },
+    "H4": {
+      "var": "Suhu rata-rata",
+      "h0": "Suhu rata-rata TIDAK berhubungan dengan produksi padi",
+      "h1": "Suhu rata-rata BERHUBUNGAN dengan produksi padi",
+      "rho": 0.12687980578137845,
+      "p": 0.05795891122582233,
+      "kekuatan": "Sangat Lemah",
+      "tolak_h0": false
+    }
+  },
+  "corr_matrix": {
+    "Produksi": {
+      "Produksi": 1.0,
+      "Luas Panen": 0.9056,
+      "Curah hujan": -0.0421,
+      "Kelembapan": -0.0523,
+      "Suhu rata-rata": 0.0412
+    },
+    "Luas Panen": {
+      "Produksi": 0.9056,
+      "Luas Panen": 1.0,
+      "Curah hujan": -0.093,
+      "Kelembapan": -0.0611,
+      "Suhu rata-rata": 0.1157
+    },
+    "Curah hujan": {
+      "Produksi": -0.0421,
+      "Luas Panen": -0.093,
+      "Curah hujan": 1.0,
+      "Kelembapan": 0.0565,
+      "Suhu rata-rata": -0.2287
+    },
+    "Kelembapan": {
+      "Produksi": -0.0523,
+      "Luas Panen": -0.0611,
+      "Curah hujan": 0.0565,
+      "Kelembapan": 1.0,
+      "Suhu rata-rata": -0.4078
+    },
+    "Suhu rata-rata": {
+      "Produksi": 0.0412,
+      "Luas Panen": 0.1157,
+      "Curah hujan": -0.2287,
+      "Kelembapan": -0.4078,
+      "Suhu rata-rata": 1.0
+    }
+  },
+  "rata_provinsi": {
+    "Sumatera Utara": 3330471.0,
+    "Sumatera Selatan": 2648643.0,
+    "Lampung": 2444068.0,
+    "Sumatera Barat": 1990396.0,
+    "Aceh": 1618737.0,
+    "Jambi": 552864.0,
+    "Bengkulu": 444965.0,
+    "Riau": 407465.0
+  },
+  "province_coords": {
+    "Aceh": [
+      4.695135,
+      96.749399
+    ],
+    "Sumatera Utara": [
+      2.1153547,
+      99.5450974
+    ],
+    "Sumatera Barat": [
+      -0.7399397,
+      100.8000051
+    ],
+    "Riau": [
+      0.2933469,
+      101.7068294
+    ],
+    "Jambi": [
+      -1.6101229,
+      103.6131203
+    ],
+    "Sumatera Selatan": [
+      -3.3194374,
+      104.9144479
+    ],
+    "Bengkulu": [
+      -3.5778471,
+      102.3463875
+    ],
+    "Lampung": [
+      -4.5585849,
+      105.4068419
+    ]
+  }
+};
+
+    </script>
+    <script>
+// ============================================================
+// APP.JS — logika render & interaksi, memakai window.PADI_DATA
+// (hasil asli dari proyek_ads.py). Tidak ada angka yang direka;
+// semua statistik diambil langsung dari PADI_DATA.
+// ============================================================
+(function () {
+    "use strict";
+
+    const D = window.PADI_DATA;
+    const VARS = D.meta.kolom_numerik;
+    const VAR_LABEL = {
+        "Produksi": "Produksi (ton)",
+        "Luas Panen": "Luas Panen (ha)",
+        "Curah hujan": "Curah Hujan (mm)",
+        "Kelembapan": "Kelembapan (%)",
+        "Suhu rata-rata": "Suhu Rata-rata (\u00b0C)"
+    };
+    const fmtInt = (n) => Math.round(n).toLocaleString("id-ID");
+    const fmtNum = (n, d = 2) => Number(n).toLocaleString("id-ID", { minimumFractionDigits: d, maximumFractionDigits: d });
+    const fmtP = (p) => p < 0.0001 ? "< 0.0001" : fmtNum(p, 4);
+
+    const state = {
+        yearStart: D.meta.tahun_min,
+        yearEnd: D.meta.tahun_max,
+        provinces: new Set(D.meta.provinsi_list)
+    };
+
+    let charts = {};
+
+    document.addEventListener("DOMContentLoaded", () => {
+        renderHeroStats();
+        renderProvinsiFilter();
+        wireYearSliders();
+        wireFilterReset();
+        renderDashboard();
+        renderMap();
+        renderDescriptiveTable();
+        renderDeskriptifInterpretasi();
+        wireVizTabs();
+        setupVarSelect("hist-var-select", () => renderHistogram());
+        setupVarSelect("scatter-var-select", () => renderScatter(), VARS.filter(v => v !== "Produksi"));
+        renderHistogram();
+        renderBoxplot();
+        renderScatter();
+        renderHeatmap();
+        renderShapiroTable();
+        renderNormalitasInterpretasi();
+        renderHypothesisCards();
+        renderFinalCharts();
+        renderInsightLists();
+    });
+
+    function filteredRows() {
+        return D.rows.filter(r =>
+            r.Tahun >= state.yearStart && r.Tahun <= state.yearEnd && state.provinces.has(r.Provinsi)
+        );
+    }
+
+    // ---------- 00 HERO ----------
+    function renderHeroStats() {
+        const el = document.getElementById("hero-stats");
+        const totalProduksi = D.rows.reduce((s, r) => s + r.Produksi, 0);
+        const items = [
+            { label: "Total Baris Data", value: D.meta.n_rows },
+            { label: "Provinsi Terpantau", value: D.meta.n_provinsi },
+            { label: "Rentang Tahun", value: `${D.meta.tahun_min}\u2013${D.meta.tahun_max}` },
+            { label: "Total Produksi Tercatat", value: `${fmtInt(totalProduksi / 1e6)} juta ton` },
+        ];
+        el.innerHTML = items.map(it => `
+            <div>
+                <p class="mono" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);margin:0 0 6px;">${it.label}</p>
+                <p style="font-family:var(--font-mono);font-size:1.15rem;font-weight:600;margin:0;color:var(--text-primary);">${it.value}</p>
+            </div>
+        `).join("");
+    }
+
+    // ---------- 01 DASHBOARD ----------
+    function renderProvinsiFilter() {
+        const el = document.getElementById("provinsi-filter");
+        el.innerHTML = D.meta.provinsi_list.map(p =>
+            `<button type="button" class="active" data-prov="${p}" aria-pressed="true">${p}</button>`
+        ).join("");
+        el.querySelectorAll("button").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const p = btn.dataset.prov;
+                if (state.provinces.has(p)) {
+                    if (state.provinces.size === 1) return; // keep at least one
+                    state.provinces.delete(p);
+                    btn.classList.remove("active");
+                    btn.setAttribute("aria-pressed", "false");
+                } else {
+                    state.provinces.add(p);
+                    btn.classList.add("active");
+                    btn.setAttribute("aria-pressed", "true");
+                }
+                renderDashboard();
+            });
+        });
+    }
+
+    function wireYearSliders() {
+        const startEl = document.getElementById("year-start");
+        const endEl = document.getElementById("year-end");
+        const startLabel = document.getElementById("year-start-label");
+        const endLabel = document.getElementById("year-end-label");
+
+        function update() {
+            let s = parseInt(startEl.value, 10);
+            let e = parseInt(endEl.value, 10);
+            if (s > e) { [s, e] = [e, s]; }
+            state.yearStart = s;
+            state.yearEnd = e;
+            startLabel.textContent = s;
+            endLabel.textContent = e;
+            renderDashboard();
+        }
+        startEl.addEventListener("input", update);
+        endEl.addEventListener("input", update);
+    }
+
+    function wireFilterReset() {
+        document.getElementById("filter-reset").addEventListener("click", () => {
+            document.getElementById("year-start").value = D.meta.tahun_min;
+            document.getElementById("year-end").value = D.meta.tahun_max;
+            document.getElementById("year-start-label").textContent = D.meta.tahun_min;
+            document.getElementById("year-end-label").textContent = D.meta.tahun_max;
+            state.yearStart = D.meta.tahun_min;
+            state.yearEnd = D.meta.tahun_max;
+            state.provinces = new Set(D.meta.provinsi_list);
+            document.querySelectorAll("#provinsi-filter button").forEach(b => {
+                b.classList.add("active"); b.setAttribute("aria-pressed", "true");
+            });
+            renderDashboard();
+        });
+    }
+
+    function renderDashboard() {
+        renderSummaryCards();
+        renderLineChart();
+    }
+
+    function renderSummaryCards() {
+        const rows = filteredRows();
+        const el = document.getElementById("summary-cards");
+        if (!rows.length) {
+            el.innerHTML = `<div><p style="margin:0;color:var(--text-muted);">Tidak ada data pada filter ini.</p></div>`;
+            return;
+        }
+        const avg = (key) => rows.reduce((s, r) => s + r[key], 0) / rows.length;
+        const total = rows.reduce((s, r) => s + r.Produksi, 0);
+        const cards = [
+            { label: "Total Produksi", value: `${fmtInt(total)} ton` },
+            { label: "Rata-rata Produksi / Tahun-Provinsi", value: `${fmtInt(avg("Produksi"))} ton` },
+            { label: "Rata-rata Luas Panen", value: `${fmtInt(avg("Luas Panen"))} ha` },
+            { label: "Rata-rata Curah Hujan", value: `${fmtNum(avg("Curah hujan"), 1)} mm` },
+            { label: "Rata-rata Kelembapan", value: `${fmtNum(avg("Kelembapan"), 1)}%` },
+            { label: "Rata-rata Suhu", value: `${fmtNum(avg("Suhu rata-rata"), 1)}\u00b0C` },
+        ];
+        el.innerHTML = cards.map(c => `
+            <div>
+                <p class="mono" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-faint);margin:0 0 8px;">${c.label}</p>
+                <p style="font-size:1.2rem;font-weight:700;margin:0;font-family:var(--font-mono);">${c.value}</p>
+            </div>
+        `).join("");
+    }
+
+    function chartColors() {
+        const dark = document.documentElement.getAttribute("data-theme") === "dark";
+        return {
+            grid: dark ? "rgba(120,255,190,0.08)" : "rgba(15,60,40,0.08)",
+            text: dark ? "#8fae9e" : "#4d6459",
+            a: dark ? "#38ffa0" : "#0f9d64",
+            b: dark ? "#35d4ff" : "#0891b2",
+            c: dark ? "#b09bff" : "#7c5cff",
+            danger: "#d64545"
+        };
+    }
+
+    function renderLineChart() {
+        const rows = filteredRows();
+        const years = [];
+        for (let y = state.yearStart; y <= state.yearEnd; y++) years.push(y);
+        const provs = Array.from(state.provinces);
+        const palette = ["#0f9d64", "#0891b2", "#7c5cff", "#d64545", "#c9a227", "#3f6212", "#0e7490", "#9333ea"];
+        const col = chartColors();
+
+        const datasets = provs.map((p, i) => ({
+            label: p,
+            data: years.map(y => {
+                const r = rows.find(rr => rr.Tahun === y && rr.Provinsi === p);
+                return r ? r.Produksi : null;
+            }),
+            borderColor: palette[i % palette.length],
+            backgroundColor: palette[i % palette.length],
+            borderWidth: 2,
+            pointRadius: 1.5,
+            tension: 0.25,
+            spanGaps: true
+        }));
+
+        if (charts.line) charts.line.destroy();
+        charts.line = new Chart(document.getElementById("chart-line"), {
+            type: "line",
+            data: { labels: years, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: "bottom", labels: { color: col.text, font: { size: 10 } } } },
+                scales: {
+                    x: { grid: { color: col.grid }, ticks: { color: col.text } },
+                    y: { grid: { color: col.grid }, ticks: { color: col.text, callback: v => (v / 1e6) + "jt" } }
+                }
+            }
+        });
+    }
+
+    // ---------- MAP ----------
+    let leafletMap, mapMarkers = [];
+    function renderMap() {
+        if (!window.L) return;
+        leafletMap = L.map("map", { scrollWheelZoom: false }).setView([-1.5, 101.5], 5);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: "&copy; OpenStreetMap contributors",
+            maxZoom: 10
+        }).addTo(leafletMap);
+
+        const maxAvg = Math.max(...Object.values(D.rata_provinsi));
+        D.meta.provinsi_list.forEach(p => {
+            const coord = D.province_coords[p];
+            if (!coord) return;
+            const avgProd = D.rata_provinsi[p];
+            const radius = 8 + (avgProd / maxAvg) * 28;
+            const marker = L.circleMarker(coord, {
+                radius, color: "#0f9d64", weight: 2, fillColor: "#0f9d64", fillOpacity: 0.35
+            }).addTo(leafletMap);
+            marker.bindTooltip(`<strong>${p}</strong><br>Rata-rata produksi: ${fmtInt(avgProd)} ton`);
+            marker.on("click", () => {
+                state.provinces = new Set([p]);
+                document.querySelectorAll("#provinsi-filter button").forEach(b => {
+                    const active = b.dataset.prov === p;
+                    b.classList.toggle("active", active);
+                    b.setAttribute("aria-pressed", String(active));
+                });
+                renderDashboard();
+            });
+            mapMarkers.push(marker);
+        });
+    }
+
+    // ---------- 02 STATISTIK DESKRIPTIF ----------
+    function renderDescriptiveTable() {
+        const el = document.getElementById("deskriptif-table");
+        const cols = ["Mean", "Median", "Modus", "Range", "Variance", "Std Dev", "IQR"];
+        const keyMap = { Mean: "mean", Median: "median", Modus: "modus", Range: "range", Variance: "variance", "Std Dev": "std", IQR: "iqr" };
+        let html = "<thead><tr><th>Variabel</th>" + cols.map(c => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+        VARS.forEach(v => {
+            const d = D.descriptive[v];
+            html += `<tr><td><strong>${v}</strong></td>` +
+                cols.map(c => `<td>${fmtNum(d[keyMap[c]], c === "Variance" ? 2 : 2)}</td>`).join("") +
+                "</tr>";
+        });
+        html += "</tbody>";
+        el.innerHTML = html;
+    }
+
+    function renderDeskriptifInterpretasi() {
+        const el = document.getElementById("deskriptif-interpretasi");
+        const prod = D.descriptive["Produksi"];
+        const lp = D.descriptive["Luas Panen"];
+        el.innerHTML = `<h4>Interpretasi</h4>
+        <p>Rata-rata produksi padi di Sumatera periode 1993&ndash;2020 adalah <strong>${fmtInt(prod.mean)} ton</strong>
+        dengan median ${fmtInt(prod.median)} ton &mdash; selisih keduanya menunjukkan distribusi produksi sedikit
+        menceng. Simpangan baku sebesar ${fmtInt(prod.std)} ton dan IQR ${fmtInt(prod.iqr)} ton menandakan variasi
+        produksi antar provinsi dan tahun cukup besar, konsisten dengan rentang luas panen yang juga lebar
+        (rata-rata ${fmtInt(lp.mean)} ha, IQR ${fmtInt(lp.iqr)} ha).</p>`;
+    }
+
+    // ---------- 03 VISUALISASI ----------
+    function wireVizTabs() {
+        const tabs = document.querySelectorAll("#viz-tabs .tab-btn");
+        tabs.forEach(btn => {
+            btn.addEventListener("click", () => {
+                tabs.forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+                document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+                if (btn.dataset.tab === "box") renderBoxplot();
+                if (btn.dataset.tab === "heat") renderHeatmap();
+            });
+        });
+    }
+
+    function setupVarSelect(id, onChange, list) {
+        const el = document.getElementById(id);
+        const vars = list || VARS;
+        el.innerHTML = vars.map(v => `<option value="${v}">${VAR_LABEL[v]}</option>`).join("");
+        el.addEventListener("change", onChange);
+    }
+
+    function mean(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+    function median(arr) {
+        const s = [...arr].sort((a, b) => a - b);
+        const m = s.length;
+        return m % 2 ? s[(m - 1) / 2] : (s[m / 2 - 1] + s[m / 2]) / 2;
+    }
+
+    function renderHistogram() {
+        const v = document.getElementById("hist-var-select").value || VARS[0];
+        const vals = D.rows.map(r => r[v]);
+        const col = chartColors();
+        const nbins = 12;
+        const min = Math.min(...vals), max = Math.max(...vals);
+        const width = (max - min) / nbins || 1;
+        const bins = new Array(nbins).fill(0);
+        vals.forEach(val => {
+            let idx = Math.floor((val - min) / width);
+            if (idx >= nbins) idx = nbins - 1;
+            if (idx < 0) idx = 0;
+            bins[idx]++;
+        });
+        const labels = bins.map((_, i) => (min + i * width).toFixed(1));
+        const m = mean(vals), md = median(vals);
+
+        if (charts.hist) charts.hist.destroy();
+        charts.hist = new Chart(document.getElementById("chart-hist"), {
+            type: "bar",
+            data: {
+                labels,
+                datasets: [{
+                    label: `Frekuensi ${VAR_LABEL[v]}`,
+                    data: bins,
+                    backgroundColor: col.a + "aa",
+                    borderColor: col.a,
+                    borderWidth: 1,
+                    barPercentage: 1, categoryPercentage: 1
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { title: (items) => `Bin mulai ${items[0].label}` } }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: col.text, maxRotation: 60, minRotation: 60, font: { size: 9 } }, title: { display: true, text: VAR_LABEL[v], color: col.text } },
+                    y: { grid: { color: col.grid }, ticks: { color: col.text }, title: { display: true, text: "Frekuensi", color: col.text } }
+                }
+            },
+            plugins: [{
+                id: "meanMedianLines",
+                afterDraw(chart) {
+                    const { ctx, chartArea, scales } = chart;
+                    const xScale = scales.x;
+                    const drawLine = (val, color, label) => {
+                        const idx = Math.min(nbins - 1, Math.max(0, Math.floor((val - min) / width)));
+                        const x = xScale.getPixelForValue(idx);
+                        ctx.save();
+                        ctx.strokeStyle = color;
+                        ctx.setLineDash([5, 4]);
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(x, chartArea.top);
+                        ctx.lineTo(x, chartArea.bottom);
+                        ctx.stroke();
+                        ctx.fillStyle = color;
+                        ctx.font = "10px 'IBM Plex Mono', monospace";
+                        ctx.fillText(label, x + 4, chartArea.top + 12);
+                        ctx.restore();
+                    };
+                    drawLine(m, col.danger, "Mean");
+                    drawLine(md, col.b, "Median");
+                }
+            }]
+        });
+
+        document.getElementById("hist-interpretasi").innerHTML = `<h4>Interpretasi</h4>
+        <p>Distribusi <strong>${VAR_LABEL[v]}</strong> memiliki mean ${fmtNum(m)} dan median ${fmtNum(md)}.
+        ${Math.abs(m - md) / (md || 1) > 0.05 ? "Selisih mean dan median menunjukkan distribusi menceng (skewed), sesuai dengan hasil uji Shapiro-Wilk yang menyatakan data tidak berdistribusi normal." : "Mean dan median relatif berdekatan, namun uji Shapiro-Wilk tetap menyatakan data tidak berdistribusi normal secara statistik."}</p>`;
+    }
+
+    function renderBoxplot() {
+        const canvas = document.getElementById("chart-box");
+        const wrap = canvas.parentElement;
+        const dpr = window.devicePixelRatio || 1;
+        const w = wrap.clientWidth, h = wrap.clientHeight;
+        canvas.width = w * dpr; canvas.height = h * dpr;
+        canvas.style.width = w + "px"; canvas.style.height = h + "px";
+        const ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        const col = chartColors();
+
+        const cols = 3, rows = 2;
+        const cellW = w / cols, cellH = h / rows;
+        VARS.forEach((v, i) => {
+            const cx = (i % cols) * cellW, cy = Math.floor(i / cols) * cellH;
+            drawBoxplotCell(ctx, cx, cy, cellW, cellH, v, col);
+        });
+
+        document.getElementById("box-interpretasi").innerHTML = `<h4>Interpretasi</h4>
+        <p>Boxplot memakai kuartil hasil perhitungan pandas (Q1, median, Q3) dan pagar 1.5&times;IQR untuk menandai
+        pencilan (titik oranye). Variabel dengan rentang whisker terpanjang menunjukkan variasi tertinggi antar
+        provinsi dan tahun, terutama pada Produksi dan Luas Panen yang memang berskala besar dan beragam per provinsi.</p>`;
+    }
+
+    function drawBoxplotCell(ctx, cx, cy, cw, ch, varName, col) {
+        const vals = D.rows.map(r => r[varName]).sort((a, b) => a - b);
+        const d = D.descriptive[varName];
+        const q1 = d.q1, q2 = d.q2, q3 = d.q3, iqr = d.iqr;
+        const lowFence = q1 - 1.5 * iqr, highFence = q3 + 1.5 * iqr;
+        const dataMin = Math.max(d.min, lowFence <= d.min ? d.min : lowFence);
+        const dataMax = Math.min(d.max, highFence >= d.max ? d.max : highFence);
+        const whiskerLow = Math.max(d.min, lowFence);
+        const whiskerHigh = Math.min(d.max, highFence);
+        const outliers = vals.filter(v => v < lowFence || v > highFence);
+
+        const padTop = 26, padBottom = 22, padSide = 26;
+        const plotH = ch - padTop - padBottom;
+        const yScale = (val) => cy + padTop + plotH * (1 - (val - d.min) / (d.max - d.min || 1));
+        const midX = cx + cw / 2;
+        const boxHalf = Math.min(cw * 0.18, 34);
+
+        ctx.save();
+        ctx.font = "600 11px 'Inter', sans-serif";
+        ctx.fillStyle = col.text;
+        ctx.textAlign = "center";
+        ctx.fillText(varName, midX, cy + 14);
+
+        // whisker line
+        ctx.strokeStyle = col.text;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(midX, yScale(whiskerLow));
+        ctx.lineTo(midX, yScale(whiskerHigh));
+        ctx.stroke();
+        // whisker caps
+        [whiskerLow, whiskerHigh].forEach(v => {
+            ctx.beginPath();
+            ctx.moveTo(midX - boxHalf * 0.5, yScale(v));
+            ctx.lineTo(midX + boxHalf * 0.5, yScale(v));
+            ctx.stroke();
+        });
+        // box
+        ctx.fillStyle = col.a + "33";
+        ctx.strokeStyle = col.a;
+        ctx.lineWidth = 2;
+        const boxTop = yScale(q3), boxBottom = yScale(q1);
+        ctx.fillRect(midX - boxHalf, boxTop, boxHalf * 2, boxBottom - boxTop);
+        ctx.strokeRect(midX - boxHalf, boxTop, boxHalf * 2, boxBottom - boxTop);
+        // median
+        ctx.strokeStyle = col.danger;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(midX - boxHalf, yScale(q2));
+        ctx.lineTo(midX + boxHalf, yScale(q2));
+        ctx.stroke();
+        // outliers
+        ctx.fillStyle = "#e08a2b";
+        outliers.forEach(v => {
+            ctx.beginPath();
+            ctx.arc(midX, yScale(v), 2.6, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    }
+
+    function linreg(xs, ys) {
+        const n = xs.length;
+        const mx = mean(xs), my = mean(ys);
+        let num = 0, den = 0;
+        for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+        const slope = num / den;
+        const intercept = my - slope * mx;
+        return { slope, intercept };
+    }
+
+    function renderScatter() {
+        const v = document.getElementById("scatter-var-select").value || VARS[1];
+        const col = chartColors();
+        const pts = D.rows.map(r => ({ x: r[v], y: r.Produksi }));
+        const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+        const { slope, intercept } = linreg(xs, ys);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const linePts = [{ x: minX, y: slope * minX + intercept }, { x: maxX, y: slope * maxX + intercept }];
+
+        const hKey = { "Luas Panen": "H1", "Curah hujan": "H2", "Kelembapan": "H3", "Suhu rata-rata": "H4" }[v];
+        const sp = D.spearman[hKey];
+
+        if (charts.scatter) charts.scatter.destroy();
+        charts.scatter = new Chart(document.getElementById("chart-scatter"), {
+            type: "scatter",
+            data: {
+                datasets: [
+                    { label: `${VAR_LABEL[v]} vs Produksi`, data: pts, backgroundColor: col.b + "99", pointRadius: 3 },
+                    { label: "Garis Regresi", data: linePts, type: "line", borderColor: col.danger, borderWidth: 2, pointRadius: 0, fill: false }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: "bottom", labels: { color: col.text, font: { size: 10 } } } },
+                scales: {
+                    x: { grid: { color: col.grid }, ticks: { color: col.text }, title: { display: true, text: VAR_LABEL[v], color: col.text } },
+                    y: { grid: { color: col.grid }, ticks: { color: col.text }, title: { display: true, text: "Produksi (ton)", color: col.text } }
+                }
+            }
+        });
+
+        document.getElementById("scatter-interpretasi").innerHTML = `<h4>Interpretasi</h4>
+        <p>Korelasi Spearman antara ${VAR_LABEL[v]} dan Produksi: <strong>rho = ${fmtNum(sp.rho, 3)}</strong>,
+        p-value = ${fmtP(sp.p)} &mdash; kekuatan hubungan <strong>${sp.kekuatan}</strong>, dan hasil uji
+        <strong>${sp.tolak_h0 ? "signifikan (Tolak H0)" : "tidak signifikan (Gagal Tolak H0)"}</strong> pada &alpha; = 0.05.</p>`;
+    }
+
+    function renderHeatmap() {
+        const el = document.getElementById("heatmap");
+        const n = VARS.length;
+        el.style.gridTemplateColumns = `120px repeat(${n}, 1fr)`;
+        const cells = [`<div></div>`];
+        VARS.forEach(v => cells.push(`<div style="display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:.62rem;text-align:center;color:var(--text-muted);padding:4px;">${v}</div>`));
+        VARS.forEach(rowV => {
+            cells.push(`<div style="display:flex;align-items:center;font-family:var(--font-mono);font-size:.62rem;color:var(--text-muted);padding:4px;">${rowV}</div>`);
+            VARS.forEach(colV => {
+                const r = D.corr_matrix[rowV][colV];
+                const alpha = Math.min(1, Math.abs(r)) * 0.85 + 0.1;
+                const color = r >= 0 ? `rgba(15,157,100,${alpha})` : `rgba(214,69,69,${alpha})`;
+                cells.push(`<div style="background:${color};display:flex;align-items:center;justify-content:center;min-height:52px;font-family:var(--font-mono);font-size:.72rem;font-weight:600;color:${alpha > 0.55 ? "#fff" : "var(--text-primary)"};">${fmtNum(r, 2)}</div>`);
+            });
+        });
+        el.innerHTML = cells.join("");
+
+        document.getElementById("heat-interpretasi").innerHTML = `<h4>Interpretasi</h4>
+        <p>Korelasi Pearson terkuat terhadap Produksi ditemukan pada <strong>Luas Panen</strong>
+        (r = ${fmtNum(D.corr_matrix["Produksi"]["Luas Panen"], 3)}), sementara variabel iklim (curah hujan,
+        kelembapan, suhu) memiliki korelasi yang jauh lebih lemah terhadap produksi.</p>`;
+    }
+
+    // ---------- 04 UJI NORMALITAS ----------
+    function renderShapiroTable() {
+        const el = document.getElementById("shapiro-table");
+        let html = "<thead><tr><th>Variabel</th><th>W</th><th>p-value</th><th>Hasil</th></tr></thead><tbody>";
+        VARS.forEach(v => {
+            const s = D.shapiro[v];
+            html += `<tr><td><strong>${v}</strong></td><td>${fmtNum(s.W, 4)}</td><td>${fmtP(s.p)}</td>
+                <td style="color:${s.normal ? "var(--accent-a)" : "var(--danger)"};font-weight:600;">${s.normal ? "Normal" : "Tidak Normal"}</td></tr>`;
+        });
+        html += "</tbody>";
+        el.innerHTML = html;
+    }
+
+    function renderNormalitasInterpretasi() {
+        const allNonNormal = VARS.every(v => !D.shapiro[v].normal);
+        document.getElementById("normalitas-interpretasi").innerHTML = `<h4>Kesimpulan</h4>
+        <p>${allNonNormal ? "Seluruh variabel numerik memiliki p-value &lt; 0.05 pada uji Shapiro-Wilk, sehingga H0 (data berdistribusi normal) ditolak untuk semua variabel." : "Sebagian variabel tidak berdistribusi normal."}
+        Karena itu, korelasi antar variabel dihitung menggunakan <strong>Spearman rank correlation</strong>,
+        bukan Pearson, karena Spearman tidak mensyaratkan asumsi normalitas.</p>`;
+    }
+
+    // ---------- 05 SPEARMAN ----------
+    function renderHypothesisCards() {
+        const el = document.getElementById("hypothesis-cards");
+        el.innerHTML = Object.entries(D.spearman).map(([key, h]) => `
+            <div>
+                <p class="mono" style="font-size:.68rem;color:var(--accent-b);letter-spacing:.06em;margin:0 0 8px;">${key} &middot; ${h.var}</p>
+                <p style="font-size:.85rem;margin:0 0 12px;color:var(--text-primary);"><strong>H0:</strong> ${h.h0}<br><strong>H1:</strong> ${h.h1}</p>
+                <div style="display:flex;flex-wrap:wrap;gap:10px;font-family:var(--font-mono);font-size:.78rem;color:var(--text-muted);margin-bottom:10px;">
+                    <span>rho = <strong style="color:var(--text-primary);">${fmtNum(h.rho, 3)}</strong></span>
+                    <span>p = <strong style="color:var(--text-primary);">${fmtP(h.p)}</strong></span>
+                    <span>${h.kekuatan}</span>
+                </div>
+                <p style="margin:0;font-weight:700;font-family:var(--font-mono);font-size:.8rem;color:${h.tolak_h0 ? "var(--accent-a)" : "var(--danger)"};">
+                    ${h.tolak_h0 ? "TOLAK H0 \u2713" : "GAGAL TOLAK H0 \u2717"}
+                </p>
+            </div>
+        `).join("");
+    }
+
+    // ---------- 06 INSIGHT ----------
+    function renderFinalCharts() {
+        const col = chartColors();
+        const provs = Object.keys(D.rata_provinsi).sort((a, b) => D.rata_provinsi[b] - D.rata_provinsi[a]);
+        const vals = provs.map(p => D.rata_provinsi[p]);
+
+        if (charts.finalRank) charts.finalRank.destroy();
+        charts.finalRank = new Chart(document.getElementById("chart-final-rank"), {
+            type: "bar",
+            data: { labels: provs, datasets: [{ label: "Rata-rata Produksi (ton)", data: vals, backgroundColor: col.a + "cc" }] },
+            options: {
+                indexAxis: "y", responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { color: col.grid }, ticks: { color: col.text, callback: v => (v / 1e6).toFixed(1) + "jt" } },
+                    y: { grid: { display: false }, ticks: { color: col.text, font: { size: 10 } } }
+                }
+            }
+        });
+
+        const hKeys = Object.keys(D.spearman);
+        const labels = hKeys.map(k => `${k}\n${D.spearman[k].var}`);
+        const rhos = hKeys.map(k => Math.abs(D.spearman[k].rho));
+        const bgs = hKeys.map(k => D.spearman[k].tolak_h0 ? col.a + "cc" : col.text + "55");
+
+        if (charts.finalCorr) charts.finalCorr.destroy();
+        charts.finalCorr = new Chart(document.getElementById("chart-final-corr"), {
+            type: "bar",
+            data: { labels: hKeys.map(k => D.spearman[k].var), datasets: [{ label: "|rho| terhadap Produksi", data: rhos, backgroundColor: bgs }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { grid: { display: false }, ticks: { color: col.text, font: { size: 10 } } },
+                    y: { grid: { color: col.grid }, ticks: { color: col.text }, min: 0, max: 1 }
+                }
+            }
+        });
+    }
+
+    function renderInsightLists() {
+        const topProv = Object.entries(D.rata_provinsi).sort((a, b) => b[1] - a[1])[0];
+        const lowProv = Object.entries(D.rata_provinsi).sort((a, b) => a[1] - b[1])[0];
+        const sp = D.spearman;
+
+        const insights = [
+            `<strong>Luas Panen</strong> adalah faktor paling dominan terhadap Produksi (rho = ${fmtNum(sp.H1.rho, 3)}, p ${fmtP(sp.H1.p)}, kekuatan ${sp.H1.kekuatan}).`,
+            `<strong>Curah hujan</strong> tidak berhubungan signifikan dengan Produksi (rho = ${fmtNum(sp.H2.rho, 3)}, p = ${fmtNum(sp.H2.p, 3)}).`,
+            `<strong>Kelembapan</strong> berhubungan signifikan namun lemah dan negatif dengan Produksi (rho = ${fmtNum(sp.H3.rho, 3)}, p = ${fmtNum(sp.H3.p, 3)}).`,
+            `<strong>Suhu rata-rata</strong> tidak berhubungan signifikan dengan Produksi pada &alpha; = 0.05 (p = ${fmtNum(sp.H4.p, 3)}), meski nilai p mendekati ambang batas.`,
+            `<strong>${topProv[0]}</strong> mencatat rata-rata produksi tertinggi (${fmtInt(topProv[1])} ton), sementara <strong>${lowProv[0]}</strong> terendah (${fmtInt(lowProv[1])} ton).`,
+            `Seluruh variabel numerik tidak berdistribusi normal (Shapiro-Wilk, p &lt; 0.05), sehingga korelasi Spearman digunakan alih-alih Pearson.`
+        ];
+        const rekomendasi = [
+            `Prioritaskan perluasan dan intensifikasi <strong>luas panen</strong> sebagai pengungkit utama produksi, mengingat korelasinya yang sangat kuat.`,
+            `Jadikan <strong>${topProv[0]}</strong> sebagai acuan praktik budidaya untuk direplikasi di provinsi dengan produksi lebih rendah seperti ${lowProv[0]}.`,
+            `Lakukan kajian lanjutan pada variabel iklim (curah hujan, suhu) dengan periode data lebih granular (musiman) karena hubungan agregat tahunan belum signifikan.`,
+            `Gunakan metode nonparametrik (Spearman, uji berbasis rank) untuk analisis lanjutan selama data tetap tidak berdistribusi normal.`
+        ];
+
+        document.getElementById("insight-list").innerHTML = insights.map(i => `<li>${i}</li>`).join("");
+        document.getElementById("rekomendasi-list").innerHTML = rekomendasi.map(i => `<li>${i}</li>`).join("");
+    }
+
+    // re-render theme-sensitive charts on toggle
+    const themeBtn = document.getElementById("theme-toggle");
+    if (themeBtn) {
+        themeBtn.addEventListener("click", () => {
+            setTimeout(() => {
+                renderLineChart();
+                renderHistogram();
+                renderBoxplot();
+                renderScatter();
+                renderFinalCharts();
+            }, 60);
+        });
+    }
+})();
+
+    </script>
+</body>
+<script>
+    /* =====================================================================
+   ANIMATIONS.JS — lapisan animasi & efek visual "Satelit Panen"
+   File ini murni aditif: tidak mengubah/menimpa logika data atau chart
+   yang sudah ditangani oleh js/data.js dan js/app.js.
+   ===================================================================== */
+    (function () {
+        "use strict";
+
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const isTouch = window.matchMedia("(hover: none), (pointer: coarse)").matches;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            initSidebarToggle();
+            initRevealOnScroll();
+            initScrollSpy();
+            initMagneticButtons();
+            if (!reduceMotion && !isTouch) initCursorGlow();
+            if (!reduceMotion) initAuroraCanvas();
+            initDynamicContentAnimations();
+            initRippleOnButtons();
+        });
+
+        /* ---------- Sidebar (mobile) buka/tutup — hanya visual, tidak dobel
+           jika app.js sudah mengurus ini: kita cek dulu apakah listener
+           sudah ada dengan menandai elemen. ---------- */
+        function initSidebarToggle() {
+            const toggle = document.getElementById("sidebar-toggle");
+            const sidebar = document.getElementById("sidebar");
+            const overlay = document.getElementById("sidebar-overlay");
+            if (!toggle || !sidebar || !overlay) return;
+            if (toggle.dataset.animBound) return;
+            toggle.dataset.animBound = "1";
+
+            const close = () => { sidebar.classList.remove("open"); overlay.classList.remove("open"); };
+            const open = () => { sidebar.classList.add("open"); overlay.classList.add("open"); };
+
+            toggle.addEventListener("click", () => {
+                sidebar.classList.contains("open") ? close() : open();
+            });
+            overlay.addEventListener("click", close);
+            sidebar.querySelectorAll(".nav-link").forEach(a => a.addEventListener("click", close));
+        }
+
+        /* ---------- Reveal on scroll ---------- */
+        function initRevealOnScroll() {
+            const targets = document.querySelectorAll(
+                ".section, .panel, .hero-team, .team-list, .hypothesis-grid, .summary-grid, .insight-columns"
+            );
+            targets.forEach(el => el.classList.add("reveal"));
+
+            if (reduceMotion) {
+                targets.forEach(el => el.classList.add("in-view"));
+                return;
+            }
+
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add("in-view");
+                        io.unobserve(entry.target);
+                    }
+                });
+            }, { threshold: 0.12, rootMargin: "0px 0px -8% 0px" });
+
+            targets.forEach(el => io.observe(el));
+
+            // amati elemen yang baru muncul lewat render JS (mis. summary-cards)
+            watchAndReveal("#summary-cards", ":scope > *");
+            watchAndReveal("#hero-stats", ":scope > *");
+            watchAndReveal("#hypothesis-cards", ":scope > *");
+        }
+
+        function watchAndReveal(containerSelector, childSelector) {
+            const container = document.querySelector(containerSelector);
+            if (!container) return;
+            const revealChildren = () => {
+                container.querySelectorAll(childSelector).forEach((child, i) => {
+                    if (child.dataset.revealed) return;
+                    child.dataset.revealed = "1";
+                    child.style.opacity = "0";
+                    child.style.transform = "translateY(16px)";
+                    child.style.transition = "opacity .6s cubic-bezier(.16,1,.3,1), transform .6s cubic-bezier(.16,1,.3,1)";
+                    setTimeout(() => {
+                        child.style.opacity = "1";
+                        child.style.transform = "translateY(0)";
+                    }, 60 * i);
+                });
+            };
+            const mo = new MutationObserver(revealChildren);
+            mo.observe(container, { childList: true });
+            revealChildren();
+        }
+
+        /* ---------- Scroll-spy sidebar (indikator posisi radar) ---------- */
+        function initScrollSpy() {
+            const sections = document.querySelectorAll("main.content .section[id]");
+            const links = document.querySelectorAll(".nav-link[data-nav]");
+            if (!sections.length || !links.length) return;
+
+            const io = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        const id = entry.target.id;
+                        links.forEach(l => l.classList.toggle("active", l.dataset.nav === id));
+                    }
+                });
+            }, { threshold: 0.3, rootMargin: "-15% 0px -55% 0px" });
+
+            sections.forEach(s => io.observe(s));
+        }
+
+        /* ---------- Tombol magnetik + gradient glow mengikuti kursor ---------- */
+        function initMagneticButtons() {
+            if (isTouch || reduceMotion) return;
+            document.querySelectorAll(".btn, .theme-switch, .icon-btn").forEach(btn => {
+                btn.addEventListener("mousemove", (e) => {
+                    const r = btn.getBoundingClientRect();
+                    const x = (e.clientX - r.left - r.width / 2) * 0.18;
+                    const y = (e.clientY - r.top - r.height / 2) * 0.28;
+                    btn.style.transform = `translate(${x}px, ${y}px)`;
+                });
+                btn.addEventListener("mouseleave", () => { btn.style.transform = ""; });
+            });
+        }
+
+        /* ---------- Ripple klik pada tombol utama ---------- */
+        function initRippleOnButtons() {
+            document.querySelectorAll(".btn-primary, .tab-btn").forEach(btn => {
+                btn.addEventListener("click", (e) => {
+                    const r = btn.getBoundingClientRect();
+                    const span = document.createElement("span");
+                    const size = Math.max(r.width, r.height) * 1.4;
+                    span.style.cssText = `position:absolute;width:${size}px;height:${size}px;left:${e.clientX - r.left - size / 2}px;top:${e.clientY - r.top - size / 2}px;border-radius:50%;background:rgba(255,255,255,.35);pointer-events:none;transform:scale(0);animation:ripple-fx .6s ease-out;`;
+                    btn.style.position = "relative";
+                    btn.style.overflow = "hidden";
+                    btn.appendChild(span);
+                    setTimeout(() => span.remove(), 650);
+                });
+            });
+            if (!document.getElementById("ripple-fx-style")) {
+                const style = document.createElement("style");
+                style.id = "ripple-fx-style";
+                style.textContent = "@keyframes ripple-fx{to{transform:scale(1);opacity:0;}}";
+                document.head.appendChild(style);
+            }
+        }
+
+        /* ---------- Cursor glow (desktop) ---------- */
+        function initCursorGlow() {
+            const glow = document.createElement("div");
+            glow.id = "cursor-glow";
+            document.body.appendChild(glow);
+
+            let x = 0, y = 0, tx = 0, ty = 0;
+            window.addEventListener("mousemove", (e) => {
+                tx = e.clientX; ty = e.clientY;
+                document.body.classList.add("cursor-active");
+            });
+            window.addEventListener("mouseleave", () => document.body.classList.remove("cursor-active"));
+
+            (function loop() {
+                x += (tx - x) * 0.12;
+                y += (ty - y) * 0.12;
+                glow.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+                requestAnimationFrame(loop);
+            })();
+        }
+
+        /* ---------- Latar aurora / partikel bergaya citra satelit ---------- */
+        function initAuroraCanvas() {
+            const canvas = document.createElement("canvas");
+            canvas.id = "aurora-canvas";
+            document.body.prepend(canvas);
+            const ctx = canvas.getContext("2d");
+
+            let w, h, particles;
+            function resize() {
+                w = canvas.width = window.innerWidth;
+                h = canvas.height = window.innerHeight;
+            }
+            function makeParticles() {
+                const count = Math.min(70, Math.floor((w * h) / 22000));
+                particles = Array.from({ length: count }, () => ({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    r: Math.random() * 1.6 + 0.4,
+                    vx: (Math.random() - 0.5) * 0.15,
+                    vy: (Math.random() - 0.5) * 0.15,
+                    a: Math.random() * 0.5 + 0.15,
+                }));
+            }
+            resize(); makeParticles();
+            window.addEventListener("resize", () => { resize(); makeParticles(); });
+
+            function isDark() { return document.documentElement.getAttribute("data-theme") === "dark"; }
+
+            function tick() {
+                ctx.clearRect(0, 0, w, h);
+                const color = isDark() ? "56,255,160" : "15,157,100";
+                particles.forEach(p => {
+                    p.x += p.vx; p.y += p.vy;
+                    if (p.x < 0) p.x = w; if (p.x > w) p.x = 0;
+                    if (p.y < 0) p.y = h; if (p.y > h) p.y = 0;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(${color},${p.a})`;
+                    ctx.fill();
+                });
+                requestAnimationFrame(tick);
+            }
+            tick();
+        }
+
+        /* ---------- Animasi angka (count-up) untuk konten yang dirender JS ---------- */
+        function animateNumbersWithin(el) {
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            const nodes = [];
+            let n;
+            while ((n = walker.nextNode())) {
+                const match = n.nodeValue.match(/-?\d[\d.,]*/);
+                if (match && match[0].replace(/[.,]/g, "").length >= 2) nodes.push(n);
+            }
+            nodes.forEach(node => {
+                const parent = node.parentElement;
+                if (!parent || parent.dataset.counted) return;
+                parent.dataset.counted = "1";
+                parent.classList.add("count-animate");
+            });
+        }
+
+        function initDynamicContentAnimations() {
+            const containers = ["#hero-stats", "#summary-cards", "#hypothesis-cards"]
+                .map(sel => document.querySelector(sel))
+                .filter(Boolean);
+            containers.forEach(c => {
+                const mo = new MutationObserver(() => animateNumbersWithin(c));
+                mo.observe(c, { childList: true, subtree: true });
+                animateNumbersWithin(c);
+            });
+
+            // baris tabel: fade-in halus saat tabel diisi oleh app.js
+            document.querySelectorAll(".data-table").forEach(table => {
+                const mo = new MutationObserver(() => {
+                    table.querySelectorAll("tbody tr").forEach((tr, i) => {
+                        if (tr.dataset.animated) return;
+                        tr.dataset.animated = "1";
+                        tr.style.opacity = "0";
+                        tr.style.transition = "opacity .4s ease";
+                        setTimeout(() => (tr.style.opacity = "1"), 25 * i);
+                    });
+                });
+                mo.observe(table, { childList: true, subtree: true });
+            });
+        }
+    })();
+
+</script>
+
+</html>
