@@ -8,7 +8,7 @@ Laporan interaktif berbasis web (single-page) yang menyajikan analisis statistik
 - Azhar Jawad (0102525021)
 - Fachri Muzzaki (0102525022)
 
-Dosen Pembimbing: **Tri Aji Nugroho, S.T., M.T.**
+Dosen Pengampu: **Tri Aji Nugroho, S.T., M.T.**
 
 ---
 
